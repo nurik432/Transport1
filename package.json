@@ -1,0 +1,18 @@
+{
+  "name": "transport1",
+  "private": true,
+  "packageManager": "pnpm@12.5.1",
+  "scripts": {
+    "dev": "pnpm --filter web dev",
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "db:up": "docker compose up -d db",
+    "db:down": "docker compose down",
+    "db:generate": "pnpm --filter @transport/db generate",
+    "db:migrate": "pnpm --filter @transport/db migrate",
+    "db:seed": "pnpm --filter @transport/db seed",
+    "db:reset": "pnpm --filter @transport/db reset"
+  }
+}

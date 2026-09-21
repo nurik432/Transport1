@@ -1,0 +1,83 @@
+@import "tailwindcss";
+
+/*
+ * Design system: Minimalism / Swiss style, transit blue.
+ * Font: Inter (full Cyrillic coverage; the suggested display face had none).
+ */
+
+@theme {
+  --color-primary: #2563eb;
+  --color-on-primary: #ffffff;
+  --color-primary-soft: #dbeafe;
+  --color-secondary: #0891b2;
+  --color-accent: #ea580c;
+
+  --color-background: #f8fafc;
+  --color-foreground: #0f172a;
+  --color-card: #ffffff;
+  --color-muted: #f1f5fd;
+  --color-muted-foreground: #475569;
+  --color-border: #e4ecfc;
+
+  --color-ok: #16a34a;
+  --color-ok-soft: #dcfce7;
+  --color-warn: #ca8a04;
+  --color-warn-soft: #fef9c3;
+  --color-danger: #dc2626;
+  --color-danger-soft: #fee2e2;
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+
+  --radius-card: 0.875rem;
+}
+
+:root {
+  color-scheme: light;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: none;
+}
+
+/* Visible focus for keyboard users everywhere. */
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Safe area for mobile bottom navigation. */
+.pb-safe {
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 0.5rem);
+}
+
+/* Leaflet: keep map panes below sticky app chrome. */
+.leaflet-container {
+  font: inherit;
+  background: var(--color-muted);
+  z-index: 0;
+}
+.leaflet-pane,
+.leaflet-top,
+.leaflet-bottom {
+  z-index: 0 !important;
+}
