@@ -13,4 +13,4 @@ export function MapPanel(props: MapViewProps) {
   return <MapView {...props} />;
 }
 
-export type { MapStop, MapLine, MapVehicle, MapViewProps } from "./map-view";
+export type { MapStop, MapLine, MapVehicle, MapArea, MapViewProps } from "./map-view";

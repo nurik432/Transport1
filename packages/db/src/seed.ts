@@ -158,6 +158,15 @@ const FIRST_NAMES = [
 ];
 const LAST_NAMES = ["Рахимов", "Каримов", "Назаров", "Шарипов", "Юсупов", "Холиков", "Саидов", "Мирзоев", "Ахмедов", "Абдуллоев", "Хакимов", "Одинаев"];
 const FEMALE = new Set(["Манижа", "Нигора", "Шахноза", "Мадина", "Зарина", "Сабина", "Гулноз", "Парвина", "Нилуфар", "Тахмина", "Мавзуна", "Сарвиноз", "Малика", "Фарзона"]);
+/*
+ * Employees who live where no stop exists yet. They have no line and never book
+ * a trip, which is exactly the situation the coverage analysis should surface.
+ */
+const UNSERVED_AREAS = [
+  { name: "Кайраккум", lat: 40.2755, lng: 69.8215, address: "г. Кайраккум, ул. Набережная", people: 7 },
+  { name: "Чкаловск", lat: 40.2205, lng: 69.5305, address: "г. Бустон, мкр. Чкаловск", people: 5 },
+] as const;
+
 const DEPARTMENTS = ["Производство", "Бухгалтерия", "IT", "Логистика", "Продажи", "HR", "Снабжение"];
 
 // ---------- main ----------
@@ -310,6 +319,31 @@ async function main() {
     }
   }
 
+  // employees living outside the current stop network
+  for (const area of UNSERVED_AREAS) {
+    for (let i = 0; i < area.people; i++) {
+      let name = "";
+      do {
+        const fn = pick(FIRST_NAMES);
+        const ln = pick(LAST_NAMES) + (FEMALE.has(fn) ? "а" : "");
+        name = `${fn} ${ln}`;
+      } while (usedNames.has(name));
+      usedNames.add(name);
+
+      const [u] = await db
+        .insert(s.users)
+        .values({ name, phone: `+99291${String(phoneCounter++).padStart(7, "0")}`, role: "passenger", passwordHash: passHash })
+        .returning();
+      await db.insert(s.passengers).values({
+        userId: u!.id,
+        homeAddress: `${area.address}, д. ${1 + jitter(30)}`,
+        lat: area.lat + (rnd() - 0.5) * 0.004,
+        lng: area.lng + (rnd() - 0.5) * 0.005,
+        department: pick(DEPARTMENTS),
+      });
+    }
+  }
+
   // trips: past 14 days (completed with facts), today + 7 days (planned)
   let tripCount = 0;
   for (let dayOffset = -14; dayOffset <= 7; dayOffset++) {
@@ -422,7 +456,8 @@ async function main() {
     },
   ]);
 
-  console.log(`seeded: ${stopRows.length} stops, ${routeCtxs.length} routes, ${vehicleRows.length} vehicles, ${driverUsers.length} drivers, ${passengerCtxs.length} passengers, ${tripCount} trips`);
+  const unserved = UNSERVED_AREAS.reduce((n, a) => n + a.people, 0);
+  console.log(`seeded: ${stopRows.length} stops, ${routeCtxs.length} routes, ${vehicleRows.length} vehicles, ${driverUsers.length} drivers, ${passengerCtxs.length + unserved} passengers (${unserved} без маршрута), ${tripCount} trips`);
   console.log(`logins: admin +992900000001/${SEED_PASSWORDS.admin}; driver ${DRIVERS[0]!.phone}/${SEED_PASSWORDS.driver}; passenger +992910000001/${SEED_PASSWORDS.passenger}`);
   process.exit(0);
 }

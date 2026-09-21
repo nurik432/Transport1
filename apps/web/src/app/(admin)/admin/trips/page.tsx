@@ -5,6 +5,8 @@ import { requireRole } from "@/lib/auth";
 import { db, schema } from "@/lib/db";
 import { AdminMain, Cell, PageHeader, Row, Table } from "@/components/admin-ui";
 import { RouteBadge, cx } from "@/components/ui";
+import { forecastByTrip } from "@/lib/planning";
+import { RISK_LABEL, type ForecastRisk } from "@transport/domain";
 import { GenerateTripsForm, TripAssignment, TripRowActions } from "./trips-editor";
 
 const STATUS_LABEL: Record<string, { label: string; cls: string }> = {
@@ -59,6 +61,7 @@ export default async function TripsPage({ searchParams }: { searchParams: Promis
       .orderBy(asc(schema.routes.name)),
   ]);
 
+  const forecasts = await forecastByTrip(day);
   const unassigned = trips.filter((t) => !t.vehicleId || !t.driverId).length;
 
   return (
@@ -113,7 +116,7 @@ export default async function TripsPage({ searchParams }: { searchParams: Promis
         />
       </div>
 
-      <Table head={["Время", "Маршрут", "Транспорт и водитель", "Записались", "Статус", ""]}>
+      <Table head={["Время", "Маршрут", "Транспорт и водитель", "Записались", "Прогноз", "Статус", ""]}>
         {trips.map((t) => (
           <Row key={t.id}>
             <Cell className="font-medium tabular-nums">{t.startTime.slice(0, 5)}</Cell>
@@ -136,6 +139,25 @@ export default async function TripsPage({ searchParams }: { searchParams: Promis
             <Cell className="tabular-nums">
               {Number(t.booked)}
               {t.capacity ? <span className="text-muted-foreground"> / {t.capacity}</span> : null}
+            </Cell>
+            <Cell>
+              {(() => {
+                const f = forecasts.get(t.id);
+                if (!f || f.basis === "none") return <span className="text-muted-foreground">—</span>;
+                return (
+                  <span className="flex flex-col">
+                    <span className="tabular-nums">
+                      {f.expected}
+                      <span className="text-muted-foreground"> чел.</span>
+                    </span>
+                    {f.risk === "overflow" || f.risk === "tight" ? (
+                      <span className={cx("text-xs", f.risk === "overflow" ? "text-danger" : "text-yellow-700")}>
+                        {RISK_LABEL[f.risk as ForecastRisk]}
+                      </span>
+                    ) : null}
+                  </span>
+                );
+              })()}
             </Cell>
             <Cell className={STATUS_LABEL[t.status]?.cls}>{STATUS_LABEL[t.status]?.label}</Cell>
             <Cell>

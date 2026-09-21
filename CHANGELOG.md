@@ -112,3 +112,12 @@ Mechanical record only - see git history for diffs and rationale._
 - 2026-09-21 13:42  Write  C:/Users/fid926309449/transport1/apps/web/src/app/(driver)/driver/trips/[id]/position-tracker.tsx
 - 2026-09-21 13:51  Write  C:/Users/fid926309449/transport1/apps/web/src/app/(passenger)/app/trips/[id]/live-panel.tsx
 - 2026-09-21 13:52  Write  C:/Users/fid926309449/transport1/apps/web/src/app/(passenger)/app/trips/[id]/page.tsx
+- 2026-09-21 13:56  Write  C:/Users/fid926309449/.claude/projects/C--Users-fid926309449-transport1/memory/transport-project-context.md
+- 2026-09-21 14:10  Write  C:/Users/fid926309449/transport1/packages/domain/src/forecast.ts
+- 2026-09-21 14:11  Write  C:/Users/fid926309449/transport1/packages/domain/src/planning.ts
+- 2026-09-21 14:12  Write  C:/Users/fid926309449/transport1/packages/domain/test/forecast.test.ts
+- 2026-09-21 14:12  Write  C:/Users/fid926309449/transport1/packages/domain/test/planning.test.ts
+- 2026-09-21 14:13  Write  C:/Users/fid926309449/transport1/apps/web/src/lib/planning.ts
+- 2026-09-21 14:15  Write  C:/Users/fid926309449/transport1/apps/web/src/app/(admin)/admin/planning/proposal-actions.tsx
+- 2026-09-21 14:16  Write  C:/Users/fid926309449/transport1/apps/web/src/app/(admin)/admin/planning/page.tsx
+- 2026-09-21 14:31  Write  C:/Users/fid926309449/transport1/apps/web/next.config.ts

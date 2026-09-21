@@ -5,4 +5,6 @@ export * from "./eta";
 export * from "./live";
 export * from "./load";
 export * from "./analytics";
+export * from "./forecast";
+export * from "./planning";
 export * from "./recommendations";

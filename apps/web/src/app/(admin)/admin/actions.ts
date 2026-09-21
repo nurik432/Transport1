@@ -586,3 +586,108 @@ export async function updateLiveSettings(input: unknown): Promise<ActionResult> 
   refreshAdmin("/admin/settings", "/admin/live");
   return { ok: true, message: "Настройки мониторинга сохранены" };
 }
+
+// ---------------------------------------------------------------- planning
+
+const proposalSchema = z.object({
+  name: z.string().trim().min(1, "Укажите номер маршрута"),
+  description: z.string().trim().optional(),
+  direction: z.enum(["to_work", "from_work"]).default("to_work"),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#7c3aed"),
+  departures: z.array(z.string().regex(/^\d{2}:\d{2}$/)).default([]),
+  daysOfWeek: z.array(z.coerce.number().int().min(1).max(7)).default([1, 2, 3, 4, 5]),
+  stops: z
+    .array(
+      z.object({
+        stopId: z.string().uuid().nullable(),
+        name: z.string().trim().min(2),
+        lat: z.coerce.number().min(-90).max(90),
+        lng: z.coerce.number().min(-180).max(180),
+        offsetMin: z.coerce.number().int().min(0).max(600),
+      }),
+    )
+    .min(2, "В маршруте должно быть минимум две остановки"),
+});
+
+/**
+ * Turn a proposal into a draft route: missing stops are created, the route is
+ * saved as a draft so nothing reaches passengers until an administrator
+ * reviews it and switches it to active.
+ */
+export async function createRouteDraft(input: unknown): Promise<ActionResult> {
+  await requireRole("admin");
+  const data = parse(proposalSchema, input);
+  if (isError(data)) return fail(data.__error);
+
+  const resolved: { stopId: string; offsetMin: number }[] = [];
+  for (const stop of data.stops) {
+    if (stop.stopId) {
+      resolved.push({ stopId: stop.stopId, offsetMin: stop.offsetMin });
+      continue;
+    }
+    const created = await db
+      .insert(schema.stops)
+      .values({ name: stop.name, lat: stop.lat, lng: stop.lng, status: "active" })
+      .returning({ id: schema.stops.id });
+    resolved.push({ stopId: created[0]!.id, offsetMin: stop.offsetMin });
+  }
+
+  const route = await db
+    .insert(schema.routes)
+    .values({
+      name: data.name,
+      description: data.description || null,
+      direction: data.direction,
+      status: "draft",
+      color: data.color,
+    })
+    .returning({ id: schema.routes.id });
+  const routeId = route[0]!.id;
+
+  await db
+    .insert(schema.routeStops)
+    .values(resolved.map((s, i) => ({ routeId, stopId: s.stopId, seq: i + 1, offsetMin: s.offsetMin })));
+
+  if (data.departures.length) {
+    await db
+      .insert(schema.routeSchedules)
+      .values(data.departures.map((t) => ({ routeId, departureTime: `${t}:00`, daysOfWeek: data.daysOfWeek })));
+  }
+
+  refreshAdmin("/admin/routes", "/admin/stops", "/admin/planning");
+  return { ok: true, id: routeId, message: "Черновик маршрута создан. Проверьте и активируйте его." };
+}
+
+const departureSchema = z.object({
+  routeId: z.string().uuid(),
+  departureTime: z.string().regex(/^\d{2}:\d{2}$/, "Время в формате ЧЧ:ММ"),
+  daysOfWeek: z.array(z.coerce.number().int().min(1).max(7)).default([1, 2, 3, 4, 5]),
+});
+
+/** Add one departure to an existing route, keeping everything else untouched. */
+export async function addDeparture(input: unknown): Promise<ActionResult> {
+  await requireRole("admin");
+  const data = parse(departureSchema, input);
+  if (isError(data)) return fail(data.__error);
+
+  const existing = await db
+    .select({ id: schema.routeSchedules.id })
+    .from(schema.routeSchedules)
+    .where(
+      and(
+        eq(schema.routeSchedules.routeId, data.routeId),
+        eq(schema.routeSchedules.departureTime, `${data.departureTime}:00`),
+      ),
+    )
+    .limit(1);
+  if (existing[0]) return fail("Такое отправление уже есть");
+
+  await db.insert(schema.routeSchedules).values({
+    routeId: data.routeId,
+    departureTime: `${data.departureTime}:00`,
+    daysOfWeek: data.daysOfWeek,
+  });
+
+  refreshAdmin("/admin/routes", `/admin/routes/${data.routeId}`, "/admin/planning", "/app/routes");
+  return { ok: true, message: `Отправление ${data.departureTime} добавлено. Не забудьте сгенерировать рейсы.` };
+}

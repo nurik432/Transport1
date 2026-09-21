@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo } from "react";
 import L from "leaflet";
-import { CircleMarker, MapContainer, Marker, Polyline, Popup, TileLayer, useMap } from "react-leaflet";
+import { Circle, CircleMarker, MapContainer, Marker, Polyline, Popup, TileLayer, useMap } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
 export interface MapStop {
@@ -35,8 +35,21 @@ export interface MapVehicle {
   alert?: boolean;
 }
 
+/** A shaded area, used to show where a group of employees lives. */
+export interface MapArea {
+  id: string;
+  lat: number;
+  lng: number;
+  radiusM: number;
+  label: string;
+  note?: string;
+  /** draws the area in the warning colour */
+  alert?: boolean;
+}
+
 export interface MapViewProps {
   stops: MapStop[];
+  areas?: MapArea[];
   lines?: MapLine[];
   vehicles?: MapVehicle[];
   me?: { lat: number; lng: number } | null;
@@ -69,20 +82,23 @@ function FitBounds({
   stops,
   me,
   vehicles,
+  areas,
   enabled,
 }: {
   stops: MapStop[];
   me?: { lat: number; lng: number } | null;
   vehicles: MapVehicle[];
+  areas: MapArea[];
   enabled: boolean;
 }) {
   const map = useMap();
   // Fit to the stops only: vehicle updates should not move the map under the user.
-  const key = useMemo(() => stops.map((s) => s.id).join("|"), [stops]);
+  const key = useMemo(() => [...stops.map((s) => s.id), ...areas.map((a) => a.id)].join("|"), [stops, areas]);
 
   useEffect(() => {
     if (!enabled) return;
     const points: [number, number][] = stops.map((s) => [s.lat, s.lng]);
+    points.push(...areas.map((a) => [a.lat, a.lng] as [number, number]));
     if (me) points.push([me.lat, me.lng]);
     if (points.length === 0 && vehicles.length) points.push(...vehicles.map((v) => [v.lat, v.lng] as [number, number]));
     if (points.length === 0) return;
@@ -99,6 +115,7 @@ function FitBounds({
 
 export default function MapView({
   stops,
+  areas = [],
   lines = [],
   vehicles = [],
   me,
@@ -130,6 +147,25 @@ export default function MapView({
             dashArray: line.dashed ? "6 8" : undefined,
           }}
         />
+      ))}
+      {areas.map((a) => (
+        <Circle
+          key={a.id}
+          center={[a.lat, a.lng]}
+          radius={a.radiusM}
+          pathOptions={{
+            color: a.alert ? "#ea580c" : "#2563eb",
+            fillColor: a.alert ? "#ea580c" : "#2563eb",
+            fillOpacity: 0.16,
+            weight: 2,
+            dashArray: a.alert ? undefined : "4 6",
+          }}
+        >
+          <Popup>
+            <span className="font-medium">{a.label}</span>
+            {a.note ? <div className="text-xs text-slate-600">{a.note}</div> : null}
+          </Popup>
+        </Circle>
       ))}
       {stops.map((s) => (
         <CircleMarker
@@ -166,7 +202,7 @@ export default function MapView({
           <Popup>Моё местоположение</Popup>
         </CircleMarker>
       ) : null}
-      <FitBounds stops={stops} me={me} vehicles={vehicles} enabled={autoFit} />
+      <FitBounds stops={stops} me={me} vehicles={vehicles} areas={areas} enabled={autoFit} />
     </MapContainer>
   );
 }
