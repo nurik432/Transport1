@@ -3,6 +3,9 @@ import { and, asc, count, desc, eq, gte, inArray, lte, ne, sql } from "drizzle-o
 import {
   DEFAULT_THRESHOLDS,
   etaForStop,
+  etaFromPosition,
+  plannedSpeedKph,
+  trackingState,
   localDateTime,
   parseTimeToMinutes,
   type EtaResult,
@@ -186,8 +189,16 @@ export async function getUpcomingArrivals(opts: UpcomingArrivalsOptions): Promis
 
   const [allRouteStops, events, bookings, myBookings] = await Promise.all([
     db
-      .select({ routeId: routeStops.routeId, stopId: routeStops.stopId, seq: routeStops.seq, offsetMin: routeStops.offsetMin })
+      .select({
+        routeId: routeStops.routeId,
+        stopId: routeStops.stopId,
+        seq: routeStops.seq,
+        offsetMin: routeStops.offsetMin,
+        lat: stops.lat,
+        lng: stops.lng,
+      })
       .from(routeStops)
+      .innerJoin(stops, eq(stops.id, routeStops.stopId))
       .where(inArray(routeStops.routeId, routeIds)),
     db
       .select({ tripId: tripStopEvents.tripId, stopId: tripStopEvents.stopId, arrivedAt: tripStopEvents.arrivedAt, departedAt: tripStopEvents.departedAt })
@@ -247,7 +258,58 @@ export async function getUpcomingArrivals(opts: UpcomingArrivalsOptions): Promis
     });
   }
 
+  await applyLivePositions(arrivals, allRouteStops, now);
   return arrivals.sort((a, b) => a.eta.arrivalAt.getTime() - b.eta.arrivalAt.getTime()).slice(0, limit);
+}
+
+/**
+ * Replace the schedule estimate with a GPS one for trips that are running and
+ * still reporting. Mutates `arrivals` in place; a stale trail is left alone.
+ */
+async function applyLivePositions(
+  arrivals: Arrival[],
+  routeStopRows: { routeId: string; stopId: string; seq: number; offsetMin: number; lat: number; lng: number }[],
+  now: Date,
+): Promise<void> {
+  const running = [...new Set(arrivals.filter((a) => a.status === "in_progress").map((a) => a.tripId))];
+  if (!running.length) return;
+
+  const positions = await db
+    .select({
+      tripId: schema.vehiclePositions.tripId,
+      lat: schema.vehiclePositions.lat,
+      lng: schema.vehiclePositions.lng,
+      speedKph: schema.vehiclePositions.speedKph,
+      recordedAt: schema.vehiclePositions.recordedAt,
+    })
+    .from(schema.vehiclePositions)
+    .where(inArray(schema.vehiclePositions.tripId, running))
+    .orderBy(desc(schema.vehiclePositions.recordedAt));
+
+  const latest = new Map<string, (typeof positions)[number]>();
+  for (const p of positions) if (!latest.has(p.tripId)) latest.set(p.tripId, p);
+
+  for (const arrival of arrivals) {
+    const position = latest.get(arrival.tripId);
+    if (!position || trackingState(position.recordedAt, now) === "lost") continue;
+
+    const points = routeStopRows.filter((rs) => rs.routeId === arrival.routeId);
+    const live = etaFromPosition({
+      position: { lat: position.lat, lng: position.lng, recordedAt: position.recordedAt, speedKph: position.speedKph },
+      routeStops: points,
+      targetStopId: arrival.stopId,
+      now,
+      fallbackSpeedKph: plannedSpeedKph(points),
+    });
+    if (!live) continue;
+
+    arrival.eta = {
+      arrivalAt: live.arrivalAt,
+      minutesFromNow: live.minutesFromNow,
+      source: "position",
+      passed: live.passed,
+    };
+  }
 }
 
 // ---------------------------------------------------------------- trip detail

@@ -13,7 +13,14 @@ export function AutoRefresh({ seconds = 30 }: { seconds?: number }) {
     const id = setInterval(() => {
       if (document.visibilityState === "visible") router.refresh();
     }, seconds * 1000);
-    return () => clearInterval(id);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") router.refresh();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [router, seconds]);
   return null;
 }

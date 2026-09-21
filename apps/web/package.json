@@ -22,7 +22,8 @@
     "postgres": "^3.4.9",
     "react-leaflet": "^5.0.0",
     "recharts": "^3.10.1",
-    "zod": "^4.6.5"
+    "zod": "^4.6.5",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -34,6 +35,7 @@
     "tailwindcss": "^4",
     "typescript": "^5",
     "@types/leaflet": "^1.9.20",
-    "vitest": "^5.0.1"
+    "vitest": "^5.0.1",
+    "@types/web-push": "^3.6.4"
   }
 }

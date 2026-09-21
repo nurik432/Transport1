@@ -110,7 +110,7 @@ export default async function PassengerHome({
                       </p>
                       <p className="text-sm text-muted-foreground">
                         Прибытие в {formatLocalTime(first.eta.arrivalAt)} · отправление {first.startTime}
-                        {first.eta.source === "driver" ? " · по данным водителя" : ""}
+                        {first.eta.source === "position" ? " · по GPS" : first.eta.source === "driver" ? " · по данным водителя" : ""}
                       </p>
                     </div>
                   </div>

@@ -6,6 +6,8 @@ import { getDriverTrips } from "@/lib/queries";
 import { MobileHeader } from "@/components/mobile-shell";
 import { Card, SectionTitle } from "@/components/ui";
 import { IconBus, IconLogout } from "@/components/icons";
+import { PushSetup } from "@/components/push-setup";
+import { VAPID_PUBLIC_KEY } from "@/lib/push";
 
 export default async function DriverProfile() {
   const user = await requireRole("driver");
@@ -44,6 +46,14 @@ export default async function DriverProfile() {
               </p>
             </div>
           </Card>
+        </section>
+
+        <section>
+          <SectionTitle>Уведомления</SectionTitle>
+          <PushSetup
+            vapidPublicKey={VAPID_PUBLIC_KEY}
+            hint="Сообщения администратора и изменения маршрута будут приходить, даже когда приложение закрыто."
+          />
         </section>
 
         <section>

@@ -6,7 +6,7 @@ export interface StopEventLike {
   departedAt?: Date | null;
 }
 
-export type EtaSource = "schedule" | "driver";
+export type EtaSource = "schedule" | "driver" | "position";
 
 export interface EtaResult {
   /** Absolute predicted arrival time at the target stop. */

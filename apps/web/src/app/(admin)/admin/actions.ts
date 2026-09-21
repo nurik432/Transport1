@@ -7,6 +7,8 @@ import { addDays, weekdayOfDate, type LoadThresholds } from "@transport/domain";
 import { db, schema } from "@/lib/db";
 import { hashPassword, requireRole } from "@/lib/auth";
 import { saveThresholds } from "@/lib/queries";
+import { notify } from "@/lib/push";
+import { saveDeviationSettings } from "@/lib/live";
 
 export interface ActionResult {
   ok: boolean;
@@ -184,15 +186,13 @@ async function notifyRouteAudience(routeId: string, _adminId: string, routeName:
   const userIds = [...new Set([...recipients.map((r) => r.userId), ...drivers.map((d) => d.userId)].filter(Boolean))] as string[];
   if (!userIds.length) return;
 
-  await db.insert(schema.notifications).values(
-    userIds.map((userId) => ({
-      userId,
-      type: "route_changed" as const,
-      title: `Маршрут ${routeName} изменён`,
-      body: "Проверьте остановки и расписание перед поездкой.",
-      payload: { routeId },
-    })),
-  );
+  await notify(userIds, "route_changed", {
+    title: `Маршрут ${routeName} изменён`,
+    body: "Проверьте остановки и расписание перед поездкой.",
+    url: "/app/routes",
+    tag: `route-${routeId}`,
+    payload: { routeId },
+  });
 }
 
 export async function deleteRoute(id: string): Promise<ActionResult> {
@@ -481,15 +481,13 @@ export async function cancelTrip(tripId: string): Promise<ActionResult> {
   const recipients = [...new Set([...bookedUsers.map((b) => b.userId), trip.driverId].filter(Boolean))] as string[];
 
   if (recipients.length) {
-    await db.insert(schema.notifications).values(
-      recipients.map((userId) => ({
-        userId,
-        type: "trip_cancelled" as const,
-        title: `Рейс ${trip.startTime.slice(0, 5)} отменён`,
-        body: `Маршрут ${routeRows[0]?.name ?? ""} на ${trip.date}. Выберите другой рейс.`,
-        payload: { tripId },
-      })),
-    );
+    await notify(recipients, "trip_cancelled", {
+      title: `Рейс ${trip.startTime.slice(0, 5)} отменён`,
+      body: `Маршрут ${routeRows[0]?.name ?? ""} на ${trip.date}. Выберите другой рейс.`,
+      url: "/app",
+      tag: `trip-cancel-${tripId}`,
+      payload: { tripId },
+    });
   }
 
   refreshAdmin("/admin/trips", "/app", "/driver");
@@ -539,15 +537,12 @@ export async function sendMessage(input: unknown): Promise<ActionResult> {
 
   if (!userIds.length) return fail("Нет получателей для выбранной аудитории");
 
-  await db.insert(schema.notifications).values(
-    userIds.map((userId) => ({
-      userId,
-      type: "admin_message" as const,
-      title: data.title,
-      body: data.body,
-      payload: data.routeId ? { routeId: data.routeId } : {},
-    })),
-  );
+  await notify(userIds, "admin_message", {
+    title: data.title,
+    body: data.body,
+    url: "/app/notifications",
+    payload: data.routeId ? { routeId: data.routeId } : {},
+  });
   refreshAdmin("/admin/messages");
   return { ok: true, message: `Отправлено получателям: ${userIds.length}` };
 }
@@ -573,4 +568,21 @@ export async function updateThresholds(input: unknown): Promise<ActionResult> {
 export async function listStopOptions() {
   await requireRole("admin");
   return db.select({ id: schema.stops.id, name: schema.stops.name }).from(schema.stops).orderBy(asc(schema.stops.name));
+}
+
+const liveSchema = z.object({
+  offRouteM: z.coerce.number().int().min(50).max(5000),
+  consecutive: z.coerce.number().int().min(1).max(20),
+  missingAfterMin: z.coerce.number().int().min(1).max(120),
+  approachMin: z.coerce.number().int().min(1).max(30),
+});
+
+/** Thresholds for deviation, lost tracking and the "approaching" notice. */
+export async function updateLiveSettings(input: unknown): Promise<ActionResult> {
+  await requireRole("admin");
+  const data = parse(liveSchema, input);
+  if (isError(data)) return fail(data.__error);
+  await saveDeviationSettings(data);
+  refreshAdmin("/admin/settings", "/admin/live");
+  return { ok: true, message: "Настройки мониторинга сохранены" };
 }

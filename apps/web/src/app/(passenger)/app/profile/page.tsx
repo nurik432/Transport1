@@ -7,6 +7,8 @@ import { MobileHeader } from "@/components/mobile-shell";
 import { Card, RouteBadge, SectionTitle } from "@/components/ui";
 import { IconChevronRight, IconLogout, IconPin } from "@/components/icons";
 import { HomeAddressForm } from "./home-form";
+import { PushSetup } from "@/components/push-setup";
+import { VAPID_PUBLIC_KEY } from "@/lib/push";
 
 export default async function ProfilePage() {
   const user = await requireRole("passenger");
@@ -45,6 +47,14 @@ export default async function ProfilePage() {
               lng={profile?.lng ?? null}
             />
           </Card>
+        </section>
+
+        <section>
+          <SectionTitle>Уведомления</SectionTitle>
+          <PushSetup
+            vapidPublicKey={VAPID_PUBLIC_KEY}
+            hint="Сообщим, когда транспорт будет подъезжать к вашей остановке, и об изменениях маршрута."
+          />
         </section>
 
         <section>

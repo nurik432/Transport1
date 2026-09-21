@@ -7,6 +7,7 @@ import { MobileHeader } from "@/components/mobile-shell";
 import { Card, RouteBadge, SectionTitle, cx } from "@/components/ui";
 import { IconBus, IconUsers } from "@/components/icons";
 import { DrivingPanel, type PanelStop } from "./driving-panel";
+import { PositionTracker } from "./position-tracker";
 
 export default async function DriverTripPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireRole("driver");
@@ -63,6 +64,8 @@ export default async function DriverTripPage({ params }: { params: Promise<{ id:
             </p>
           </div>
         </Card>
+
+        <PositionTracker tripId={trip.id} active={trip.status === "in_progress"} />
 
         <DrivingPanel tripId={trip.id} status={trip.status} stops={stops} minutesTo={minutesTo} />
 

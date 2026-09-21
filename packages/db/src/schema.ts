@@ -261,6 +261,68 @@ export const notifications = pgTable(
   (t) => [index("notifications_user_created_idx").on(t.userId, t.createdAt)],
 );
 
+// ---------- Stage 2: live positions & push ----------
+
+/** GPS trail of a running trip. Recorded only while the trip is in progress. */
+export const vehiclePositions = pgTable(
+  "vehicle_positions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tripId: uuid("trip_id")
+      .notNull()
+      .references(() => trips.id, { onDelete: "cascade" }),
+    vehicleId: uuid("vehicle_id").references(() => vehicles.id, { onDelete: "set null" }),
+    driverId: uuid("driver_id").references(() => drivers.userId, { onDelete: "set null" }),
+    lat: doublePrecision("lat").notNull(),
+    lng: doublePrecision("lng").notNull(),
+    /** metres from the route polyline at the moment of recording */
+    offRouteM: doublePrecision("off_route_m"),
+    speedKph: doublePrecision("speed_kph"),
+    headingDeg: doublePrecision("heading_deg"),
+    accuracyM: doublePrecision("accuracy_m"),
+    recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [index("vehicle_positions_trip_idx").on(t.tripId, t.recordedAt)],
+);
+
+/** Web push endpoints, one row per browser/device. */
+export const pushSubscriptions = pgTable(
+  "push_subscriptions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    endpoint: text("endpoint").notNull(),
+    p256dh: text("p256dh").notNull(),
+    auth: text("auth").notNull(),
+    userAgent: text("user_agent"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("push_subscriptions_endpoint_idx").on(t.endpoint), index("push_subscriptions_user_idx").on(t.userId)],
+);
+
+/** One "vehicle is approaching" notice per passenger, trip and stop. */
+export const tripStopAlerts = pgTable(
+  "trip_stop_alerts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tripId: uuid("trip_id")
+      .notNull()
+      .references(() => trips.id, { onDelete: "cascade" }),
+    stopId: uuid("stop_id")
+      .notNull()
+      .references(() => stops.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull().default("approaching"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("trip_stop_alerts_unique_idx").on(t.tripId, t.stopId, t.userId, t.kind)],
+);
+
 /** Key/value app settings (e.g. load thresholds). */
 export const settings = pgTable("settings", {
   key: text("key").primaryKey(),
@@ -283,3 +345,5 @@ export type TripStopEvent = typeof tripStopEvents.$inferSelect;
 export type PassengerTrip = typeof passengerTrips.$inferSelect;
 export type PassengerFavorite = typeof passengerFavorites.$inferSelect;
 export type Notification = typeof notifications.$inferSelect;
+export type VehiclePosition = typeof vehiclePositions.$inferSelect;
+export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;

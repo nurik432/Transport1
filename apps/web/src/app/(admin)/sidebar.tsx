@@ -19,6 +19,7 @@ import {
 
 const ITEMS = [
   { href: "/admin", label: "Дашборд", icon: <IconHome /> },
+  { href: "/admin/live", label: "Мониторинг", icon: <IconPin /> },
   { href: "/admin/analytics", label: "Аналитика", icon: <IconChart /> },
   { href: "/admin/routes", label: "Маршруты", icon: <IconRoute /> },
   { href: "/admin/stops", label: "Остановки", icon: <IconPin /> },

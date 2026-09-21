@@ -1,19 +1,24 @@
 import { requireRole } from "@/lib/auth";
 import { getThresholds } from "@/lib/queries";
+import { getDeviationSettings } from "@/lib/live";
 import { AdminMain, PageHeader } from "@/components/admin-ui";
 import { Card, SectionTitle } from "@/components/ui";
 import { ThresholdsForm } from "./thresholds-form";
+import { LiveSettingsForm } from "./live-form";
 
 export default async function SettingsPage() {
   await requireRole("admin");
-  const t = await getThresholds();
+  const [t, live] = await Promise.all([getThresholds(), getDeviationSettings()]);
 
   return (
     <AdminMain>
       <PageHeader title="Настройки" description="Пороговые значения, по которым система помечает маршруты." />
 
       <div className="grid max-w-5xl gap-6 lg:grid-cols-[3fr_2fr]">
-        <ThresholdsForm thresholds={t} />
+        <div className="flex flex-col gap-6">
+          <ThresholdsForm thresholds={t} />
+          <LiveSettingsForm settings={live} />
+        </div>
 
         <Card className="text-sm">
           <SectionTitle>Как считается загрузка</SectionTitle>

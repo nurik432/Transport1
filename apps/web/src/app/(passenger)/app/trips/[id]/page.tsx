@@ -1,13 +1,13 @@
 import { notFound } from "next/navigation";
-import { formatEta, formatLocalDate, formatLocalTime, localNow } from "@transport/domain";
+import { formatLocalDate } from "@transport/domain";
 import { requireRole } from "@/lib/auth";
 import { getTrip } from "@/lib/queries";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { MobileHeader } from "@/components/mobile-shell";
-import { MapPanel } from "@/components/map";
-import { Card, RouteBadge, SectionTitle, cx } from "@/components/ui";
-import { IconBus, IconCheck, IconUsers } from "@/components/icons";
+import { Card, RouteBadge } from "@/components/ui";
+import { IconBus, IconUsers } from "@/components/icons";
 import { BookButton } from "../../book-button";
+import { TripLivePanel } from "./live-panel";
 
 const TRIP_STATUS_LABEL: Record<string, string> = {
   planned: "По расписанию",
@@ -19,7 +19,6 @@ const TRIP_STATUS_LABEL: Record<string, string> = {
 export default async function TripPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireRole("passenger");
   const { id } = await params;
-  const now = localNow();
 
   const trip = await getTrip(id, user.id);
   if (!trip) notFound();
@@ -31,7 +30,7 @@ export default async function TripPage({ params }: { params: Promise<{ id: strin
 
   return (
     <>
-      {trip.status === "in_progress" ? <AutoRefresh seconds={20} /> : null}
+      {trip.status === "in_progress" ? <AutoRefresh seconds={60} /> : null}
       <MobileHeader
         title={`Рейс ${trip.startTime}`}
         subtitle={`Маршрут ${trip.route.name} · ${formatLocalDate(trip.date)}`}
@@ -77,80 +76,22 @@ export default async function TripPage({ params }: { params: Promise<{ id: strin
           ) : null}
         </Card>
 
-        <MapPanel
-          className="h-56 w-full rounded-[--radius-card] border border-border"
-          lines={[{ id: trip.route.id, color: trip.route.color, points: trip.stops.map((s) => [s.lat, s.lng]) }]}
+        <TripLivePanel
+          tripId={trip.id}
+          active={trip.status === "in_progress"}
+          routeName={trip.route.name}
+          routeColor={trip.route.color}
+          myStopId={myStopId}
           stops={trip.stops.map((s) => ({
-            id: s.stopId,
+            stopId: s.stopId,
             name: s.name,
             lat: s.lat,
             lng: s.lng,
-            note: formatLocalTime(s.arrivedAt ?? s.plannedAt),
-            highlight: s.stopId === myStopId,
+            plannedAt: s.plannedAt.toISOString(),
+            arrivedAt: s.arrivedAt ? s.arrivedAt.toISOString() : null,
+            waiting: s.waiting,
           }))}
         />
-
-        <section>
-          <SectionTitle>Остановки и время</SectionTitle>
-          <Card className="p-0">
-            <ol className="flex flex-col">
-              {trip.stops.map((s, i) => {
-                const passed = Boolean(s.arrivedAt);
-                const isMine = s.stopId === myStopId;
-                const delayMin = s.arrivedAt
-                  ? Math.round((s.arrivedAt.getTime() - s.plannedAt.getTime()) / 60_000)
-                  : null;
-                return (
-                  <li
-                    key={s.stopId}
-                    className={cx(
-                      "flex items-start gap-3 border-b border-border px-4 py-3 last:border-b-0",
-                      isMine && "bg-primary-soft/40",
-                    )}
-                  >
-                    <div className="flex flex-col items-center self-stretch pt-1">
-                      <span
-                        className={cx("flex size-3 items-center justify-center rounded-full border-2")}
-                        style={{
-                          borderColor: trip.route.color,
-                          backgroundColor: passed ? trip.route.color : "#fff",
-                        }}
-                      />
-                      {i < trip.stops.length - 1 ? <span className="mt-1 w-px flex-1 bg-border" /> : null}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className={cx("text-sm", isMine ? "font-semibold" : "font-medium")}>
-                        {i + 1}. {s.name}
-                        {isMine ? " · ваша остановка" : ""}
-                      </p>
-                      {s.waiting > 0 ? (
-                        <p className="text-xs text-muted-foreground">Ожидают: {s.waiting}</p>
-                      ) : null}
-                    </div>
-                    <div className="shrink-0 text-right">
-                      <p className="text-sm font-medium tabular-nums">
-                        {formatLocalTime(s.arrivedAt ?? s.plannedAt)}
-                      </p>
-                      {passed ? (
-                        <p className="flex items-center justify-end gap-0.5 text-xs text-muted-foreground">
-                          <IconCheck className="size-3" />
-                          {delayMin && delayMin > 0 ? `+${delayMin} мин` : "по плану"}
-                        </p>
-                      ) : trip.status === "in_progress" ? (
-                        <p className="text-xs text-primary">
-                          {formatEta({
-                            minutesFromNow: Math.round((s.plannedAt.getTime() - now.instant.getTime()) / 60_000),
-                            passed: false,
-                          })}
-                        </p>
-                      ) : null}
-                    </div>
-                  </li>
-                );
-              })}
-            </ol>
-          </Card>
-        </section>
       </main>
     </>
   );

@@ -3,6 +3,7 @@ import { formatLocalDate, localNow } from "@transport/domain";
 import { requireRole } from "@/lib/auth";
 import { getDashboardCounts } from "@/lib/queries";
 import { DIRECTION_LABEL, buildAnalytics } from "@/lib/analytics";
+import { getLiveSignals, getLiveVehicles } from "@/lib/live";
 import { AdminMain, Cell, PageHeader, Row, Table } from "@/components/admin-ui";
 import { Card, EmptyState, LinkButton, LoadBar, RouteBadge, SectionTitle, Stat, StatusPill } from "@/components/ui";
 import { IconAlert, IconChevronRight } from "@/components/icons";
@@ -13,6 +14,7 @@ export default async function AdminDashboard() {
 
   const analytics = await buildAnalytics();
   const counts = await getDashboardCounts(analytics.from, now.date);
+  const [liveVehicles, liveSignals] = await Promise.all([getLiveVehicles(now.instant), getLiveSignals(now.instant, now.date)]);
 
   const withData = analytics.routes.filter((r) => r.stats.avgPct !== null);
   const avgLoad = withData.length
@@ -84,7 +86,42 @@ export default async function AdminDashboard() {
         </section>
 
         <section>
-          <SectionTitle>Сигналы системы</SectionTitle>
+          <SectionTitle
+            action={
+              <Link href="/admin/live" className="text-xs font-medium text-primary hover:underline">
+                Мониторинг
+              </Link>
+            }
+          >
+            Сейчас на линии
+          </SectionTitle>
+          <Card className="mb-4 text-sm">
+            <p>
+              Транспорта в рейсе: <span className="font-semibold tabular-nums">{liveVehicles.length}</span>
+              {liveVehicles.length ? (
+                <span className="text-muted-foreground">
+                  {" "}· на связи {liveVehicles.filter((v) => v.tracking === "live").length}
+                </span>
+              ) : null}
+            </p>
+            {liveSignals.length ? (
+              <ul className="mt-2 flex flex-col gap-1">
+                {liveSignals.slice(0, 3).map((s, i) => (
+                  <li key={i} className="flex items-start gap-2 text-sm">
+                    <IconAlert className="mt-0.5 size-4 shrink-0 text-danger" />
+                    <span>
+                      <span className="font-medium">{s.title}</span>
+                      <span className="text-muted-foreground"> — {s.details}</span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-1 text-muted-foreground">Отклонений от маршрутов нет.</p>
+            )}
+          </Card>
+
+          <SectionTitle>Сигналы загрузки</SectionTitle>
           {analytics.signals.length === 0 ? (
             <Card className="text-sm text-muted-foreground">
               Отклонений нет: все маршруты в пределах заданных порогов.

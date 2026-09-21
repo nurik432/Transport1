@@ -8,6 +8,13 @@
       "when": 1789972754394,
       "tag": "0000_cheerful_mentor",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1789979416298,
+      "tag": "0001_perpetual_leo",
+      "breakpoints": true
     }
   ]
 }
