@@ -8,6 +8,7 @@ import { db, schema } from "@/lib/db";
 import { hashPassword, requireRole } from "@/lib/auth";
 import { saveThresholds } from "@/lib/queries";
 import { notify } from "@/lib/push";
+import { rebuildAllRouteGeometry, rebuildRouteGeometry } from "@transport/db/routing";
 import { saveDeviationSettings } from "@/lib/live";
 
 export interface ActionResult {
@@ -164,10 +165,18 @@ export async function saveRoute(input: unknown): Promise<ActionResult> {
     .set({ daysOfWeek: data.daysOfWeek })
     .where(eq(schema.routeSchedules.routeId, routeId));
 
+  // The shape changed, so the stored road geometry has to be rebuilt.
+  const geometry = await rebuildRouteGeometry(db, routeId);
+
   if (!created) await notifyRouteAudience(routeId, admin.id, data.name);
 
-  refreshAdmin("/admin/routes", `/admin/routes/${routeId}`, "/app", "/app/routes");
-  return { ok: true, id: routeId, message: created ? "Маршрут создан" : "Маршрут обновлён" };
+  refreshAdmin("/admin/routes", `/admin/routes/${routeId}`, "/app", "/app/routes", "/admin/live");
+  const base = created ? "Маршрут создан" : "Маршрут обновлён";
+  const note =
+    geometry?.source === "road"
+      ? `, путь по дорогам ${(geometry.distanceM / 1000).toFixed(1).replace(".", ",")} км`
+      : ", путь по дорогам построить не удалось — показаны прямые линии";
+  return { ok: true, id: routeId, message: base + note };
 }
 
 /** Tell the route's drivers and booked passengers that it changed. */
@@ -654,6 +663,8 @@ export async function createRouteDraft(input: unknown): Promise<ActionResult> {
       .values(data.departures.map((t) => ({ routeId, departureTime: `${t}:00`, daysOfWeek: data.daysOfWeek })));
   }
 
+  await rebuildRouteGeometry(db, routeId);
+
   refreshAdmin("/admin/routes", "/admin/stops", "/admin/planning");
   return { ok: true, id: routeId, message: "Черновик маршрута создан. Проверьте и активируйте его." };
 }
@@ -690,4 +701,26 @@ export async function addDeparture(input: unknown): Promise<ActionResult> {
 
   refreshAdmin("/admin/routes", `/admin/routes/${data.routeId}`, "/admin/planning", "/app/routes");
   return { ok: true, message: `Отправление ${data.departureTime} добавлено. Не забудьте сгенерировать рейсы.` };
+}
+
+/**
+ * Rebuild road geometry for every route.
+ * Used after the routing provider was unavailable, or when stops moved.
+ */
+export async function rebuildGeometry(): Promise<ActionResult> {
+  await requireRole("admin");
+  const results = await rebuildAllRouteGeometry(db);
+  if (results.length === 0) return fail("Нет маршрутов для построения");
+
+  const road = results.filter((r) => r.source === "road").length;
+  const straight = results.length - road;
+  refreshAdmin("/admin/routes", "/admin/live", "/app", "/app/routes");
+
+  return {
+    ok: true,
+    message:
+      straight === 0
+        ? `Построено по дорогам: ${road} маршрутов`
+        : `Построено по дорогам: ${road}, осталось на прямых линиях: ${straight}`,
+  };
 }

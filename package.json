@@ -13,6 +13,7 @@
     "db:generate": "pnpm --filter @transport/db generate",
     "db:migrate": "pnpm --filter @transport/db migrate",
     "db:seed": "pnpm --filter @transport/db seed",
-    "db:reset": "pnpm --filter @transport/db reset"
+    "db:reset": "pnpm --filter @transport/db reset",
+    "db:geometry": "pnpm --filter @transport/db geometry"
   }
 }

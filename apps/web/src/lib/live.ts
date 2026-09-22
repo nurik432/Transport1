@@ -3,17 +3,18 @@ import { and, asc, desc, eq, gte, inArray, ne, sql } from "drizzle-orm";
 import {
   DEFAULT_DEVIATION,
   DEFAULT_TRACKING,
-  etaFromPosition,
+  etaOnPath,
   formatEta,
   isDeviating,
   isTrackingMissing,
-  plannedSpeedKph,
-  projectOnRoute,
+  plannedSpeedOnPath,
+  preparePath,
+  projectOnPath,
   shouldAlertApproaching,
   trackingState,
   type DeviationSettings,
   type LiveEta,
-  type RoutePoint,
+  type RoutePath,
   type TrackingState,
 } from "@transport/domain";
 import { db, schema } from "./db";
@@ -38,21 +39,48 @@ export async function saveDeviationSettings(next: DeviationSettings): Promise<vo
     });
 }
 
-/** Route stops with coordinates, for projection and live ETA. */
-async function routePoints(routeId: string): Promise<RoutePoint[]> {
-  const rows = await db
-    .select({
-      stopId: routeStops.stopId,
-      seq: routeStops.seq,
-      offsetMin: routeStops.offsetMin,
-      lat: stops.lat,
-      lng: stops.lng,
-    })
-    .from(routeStops)
-    .innerJoin(stops, eq(stops.id, routeStops.stopId))
-    .where(eq(routeStops.routeId, routeId))
-    .orderBy(asc(routeStops.seq));
-  return rows;
+/**
+ * The route's shape with its stops located on it.
+ * Uses the stored road geometry when it exists, otherwise straight lines
+ * between stops, so live estimates work even before geometry is built.
+ */
+async function routePath(routeId: string): Promise<RoutePath | null> {
+  const [routeRow, stopRows] = await Promise.all([
+    db.select({ path: routes.path }).from(routes).where(eq(routes.id, routeId)).limit(1),
+    db
+      .select({
+        stopId: routeStops.stopId,
+        seq: routeStops.seq,
+        offsetMin: routeStops.offsetMin,
+        roadDistanceM: routeStops.roadDistanceM,
+        lat: stops.lat,
+        lng: stops.lng,
+      })
+      .from(routeStops)
+      .innerJoin(stops, eq(stops.id, routeStops.stopId))
+      .where(eq(routeStops.routeId, routeId))
+      .orderBy(asc(routeStops.seq)),
+  ]);
+
+  if (stopRows.length < 2) return null;
+
+  const stored = routeRow[0]?.path;
+  const hasRoadGeometry = Array.isArray(stored) && stored.length >= 2;
+  const points = hasRoadGeometry
+    ? stored.map(([lat, lng]) => ({ lat, lng }))
+    : stopRows.map((s) => ({ lat: s.lat, lng: s.lng }));
+
+  return preparePath(
+    points,
+    stopRows.map((s) => ({
+      stopId: s.stopId,
+      seq: s.seq,
+      offsetMin: s.offsetMin,
+      lat: s.lat,
+      lng: s.lng,
+      distanceM: hasRoadGeometry ? s.roadDistanceM : null,
+    })),
+  );
 }
 
 export interface RecordPositionInput {
@@ -91,8 +119,8 @@ export async function recordPosition(input: RecordPositionInput): Promise<Record
   if (!trip || trip.driverId !== input.driverId) return { ok: false, error: "Рейс не найден" };
   if (trip.status !== "in_progress") return { ok: false, error: "Рейс не в пути" };
 
-  const points = await routePoints(trip.routeId);
-  const projection = projectOnRoute({ lat: input.lat, lng: input.lng }, points);
+  const path = await routePath(trip.routeId);
+  const projection = path ? projectOnPath({ lat: input.lat, lng: input.lng }, path) : null;
   const recordedAt = input.recordedAt ?? new Date();
 
   await db.insert(vehiclePositions).values({
@@ -108,13 +136,16 @@ export async function recordPosition(input: RecordPositionInput): Promise<Record
     recordedAt,
   });
 
-  const alerted = await alertApproachingPassengers({
-    tripId: trip.id,
-    routeId: trip.routeId,
-    points,
-    position: { lat: input.lat, lng: input.lng, recordedAt, speedKph: input.speedKph ?? null },
-    now: recordedAt,
-  });
+  const alerted = path
+    ? await alertApproachingPassengers({
+        tripId: trip.id,
+        routeId: trip.routeId,
+        path,
+        projection,
+        position: { lat: input.lat, lng: input.lng, recordedAt, speedKph: input.speedKph ?? null },
+        now: recordedAt,
+      })
+    : 0;
 
   return { ok: true, offRouteM: projection ? Math.round(projection.offRouteM) : null, alerted };
 }
@@ -123,7 +154,8 @@ export async function recordPosition(input: RecordPositionInput): Promise<Record
 async function alertApproachingPassengers(args: {
   tripId: string;
   routeId: string;
-  points: RoutePoint[];
+  path: RoutePath;
+  projection: ReturnType<typeof projectOnPath>;
   position: { lat: number; lng: number; recordedAt: Date; speedKph: number | null };
   now: Date;
 }): Promise<number> {
@@ -147,7 +179,7 @@ async function alertApproachingPassengers(args: {
     .where(and(eq(tripStopAlerts.tripId, args.tripId), eq(tripStopAlerts.kind, "approaching")));
   const alertedPairs = new Set(already.map((a) => `${a.userId}:${a.stopId}`));
 
-  const fallbackSpeed = plannedSpeedKph(args.points);
+  const fallbackSpeed = plannedSpeedOnPath(args.path);
   const etaByStop = new Map<string, LiveEta | null>();
 
   const pending: { userId: string; stopId: string; stopName: string; eta: LiveEta }[] = [];
@@ -158,9 +190,10 @@ async function alertApproachingPassengers(args: {
     if (!etaByStop.has(w.stopId)) {
       etaByStop.set(
         w.stopId,
-        etaFromPosition({
+        etaOnPath({
           position: args.position,
-          routeStops: args.points,
+          path: args.path,
+          projection: args.projection,
           targetStopId: w.stopId,
           now: args.now,
           fallbackSpeedKph: fallbackSpeed,
@@ -290,13 +323,25 @@ export async function getTripLive(tripId: string, now = new Date()): Promise<Tri
     return { position: last ? { ...last, offRouteM: last.offRouteM } : null, tracking, etaByStop: {} };
   }
 
-  const points = await routePoints(last.routeId);
-  const fallbackSpeed = plannedSpeedKph(points);
+  const path = await routePath(last.routeId);
+  if (!path) {
+    return {
+      position: { lat: last.lat, lng: last.lng, recordedAt: last.recordedAt, speedKph: last.speedKph, offRouteM: last.offRouteM },
+      tracking,
+      etaByStop: {},
+    };
+  }
+
+  const position = { lat: last.lat, lng: last.lng, recordedAt: last.recordedAt, speedKph: last.speedKph };
+  const fallbackSpeed = plannedSpeedOnPath(path);
+  // One projection is enough: it does not depend on which stop we ask about.
+  const projection = projectOnPath(position, path);
   const etaByStop: TripLive["etaByStop"] = {};
-  for (const p of points) {
-    const eta = etaFromPosition({
-      position: { lat: last.lat, lng: last.lng, recordedAt: last.recordedAt, speedKph: last.speedKph },
-      routeStops: points,
+  for (const p of path.stops) {
+    const eta = etaOnPath({
+      position,
+      path,
+      projection,
       targetStopId: p.stopId,
       now,
       fallbackSpeedKph: fallbackSpeed,

@@ -3,8 +3,10 @@ import { and, asc, count, desc, eq, gte, inArray, lte, ne, sql } from "drizzle-o
 import {
   DEFAULT_THRESHOLDS,
   etaForStop,
-  etaFromPosition,
-  plannedSpeedKph,
+  etaOnPath,
+  plannedSpeedOnPath,
+  preparePath,
+  projectOnPath,
   trackingState,
   localDateTime,
   parseTimeToMinutes,
@@ -47,6 +49,8 @@ export interface RouteStopRow {
   lat: number;
   lng: number;
   address: string | null;
+  /** distance from the route start along the road, in metres */
+  roadDistanceM: number | null;
 }
 
 export interface RouteDetail {
@@ -57,6 +61,10 @@ export interface RouteDetail {
   status: "draft" | "active" | "inactive";
   color: string;
   plannedCapacity: number | null;
+  /** road polyline as [lat, lng] pairs; null until the geometry is built */
+  path: [number, number][] | null;
+  pathSource: "road" | "straight" | null;
+  pathDistanceM: number | null;
   stops: RouteStopRow[];
   schedules: { id: string; departureTime: string; daysOfWeek: number[]; active: boolean }[];
 }
@@ -78,6 +86,7 @@ export async function listRoutes(onlyActive = true): Promise<RouteDetail[]> {
         stopId: routeStops.stopId,
         seq: routeStops.seq,
         offsetMin: routeStops.offsetMin,
+        roadDistanceM: routeStops.roadDistanceM,
         name: stops.name,
         lat: stops.lat,
         lng: stops.lng,
@@ -102,9 +111,21 @@ export async function listRoutes(onlyActive = true): Promise<RouteDetail[]> {
     status: r.status,
     color: r.color,
     plannedCapacity: r.plannedCapacity,
+    path: r.path ?? null,
+    pathSource: (r.pathSource as "road" | "straight" | null) ?? null,
+    pathDistanceM: r.pathDistanceM,
     stops: stopRows
       .filter((s) => s.routeId === r.id)
-      .map((s) => ({ stopId: s.stopId, seq: s.seq, offsetMin: s.offsetMin, name: s.name, lat: s.lat, lng: s.lng, address: s.address })),
+      .map((s) => ({
+        stopId: s.stopId,
+        seq: s.seq,
+        offsetMin: s.offsetMin,
+        roadDistanceM: s.roadDistanceM,
+        name: s.name,
+        lat: s.lat,
+        lng: s.lng,
+        address: s.address,
+      })),
     schedules: scheduleRows
       .filter((s) => s.routeId === r.id)
       .map((s) => ({ id: s.id, departureTime: s.departureTime.slice(0, 5), daysOfWeek: s.daysOfWeek, active: s.active })),
@@ -194,6 +215,7 @@ export async function getUpcomingArrivals(opts: UpcomingArrivalsOptions): Promis
         stopId: routeStops.stopId,
         seq: routeStops.seq,
         offsetMin: routeStops.offsetMin,
+        roadDistanceM: routeStops.roadDistanceM,
         lat: stops.lat,
         lng: stops.lng,
       })
@@ -265,41 +287,88 @@ export async function getUpcomingArrivals(opts: UpcomingArrivalsOptions): Promis
 /**
  * Replace the schedule estimate with a GPS one for trips that are running and
  * still reporting. Mutates `arrivals` in place; a stale trail is left alone.
+ * Follows the stored road geometry when the route has it.
  */
 async function applyLivePositions(
   arrivals: Arrival[],
-  routeStopRows: { routeId: string; stopId: string; seq: number; offsetMin: number; lat: number; lng: number }[],
+  routeStopRows: {
+    routeId: string;
+    stopId: string;
+    seq: number;
+    offsetMin: number;
+    roadDistanceM: number | null;
+    lat: number;
+    lng: number;
+  }[],
   now: Date,
 ): Promise<void> {
   const running = [...new Set(arrivals.filter((a) => a.status === "in_progress").map((a) => a.tripId))];
   if (!running.length) return;
 
-  const positions = await db
-    .select({
-      tripId: schema.vehiclePositions.tripId,
-      lat: schema.vehiclePositions.lat,
-      lng: schema.vehiclePositions.lng,
-      speedKph: schema.vehiclePositions.speedKph,
-      recordedAt: schema.vehiclePositions.recordedAt,
-    })
-    .from(schema.vehiclePositions)
-    .where(inArray(schema.vehiclePositions.tripId, running))
-    .orderBy(desc(schema.vehiclePositions.recordedAt));
+  const routeIds = [...new Set(arrivals.filter((a) => a.status === "in_progress").map((a) => a.routeId))];
+  const [positions, routeRows] = await Promise.all([
+    db
+      .select({
+        tripId: schema.vehiclePositions.tripId,
+        lat: schema.vehiclePositions.lat,
+        lng: schema.vehiclePositions.lng,
+        speedKph: schema.vehiclePositions.speedKph,
+        recordedAt: schema.vehiclePositions.recordedAt,
+      })
+      .from(schema.vehiclePositions)
+      .where(inArray(schema.vehiclePositions.tripId, running))
+      .orderBy(desc(schema.vehiclePositions.recordedAt)),
+    db.select({ id: routes.id, path: routes.path }).from(routes).where(inArray(routes.id, routeIds)),
+  ]);
 
   const latest = new Map<string, (typeof positions)[number]>();
   for (const p of positions) if (!latest.has(p.tripId)) latest.set(p.tripId, p);
+  const storedPaths = new Map(routeRows.map((r) => [r.id, r.path]));
+
+  // One prepared path and one projection per trip, reused across its stops.
+  const prepared = new Map<string, ReturnType<typeof preparePath>>();
+  const projections = new Map<string, ReturnType<typeof projectOnPath>>();
 
   for (const arrival of arrivals) {
     const position = latest.get(arrival.tripId);
     if (!position || trackingState(position.recordedAt, now) === "lost") continue;
 
-    const points = routeStopRows.filter((rs) => rs.routeId === arrival.routeId);
-    const live = etaFromPosition({
+    if (!prepared.has(arrival.routeId)) {
+      const stopsOfRoute = routeStopRows.filter((rs) => rs.routeId === arrival.routeId);
+      const stored = storedPaths.get(arrival.routeId);
+      const hasRoadGeometry = Array.isArray(stored) && stored.length >= 2;
+      prepared.set(
+        arrival.routeId,
+        preparePath(
+          hasRoadGeometry
+            ? stored.map(([lat, lng]) => ({ lat, lng }))
+            : stopsOfRoute.map((s) => ({ lat: s.lat, lng: s.lng })),
+          stopsOfRoute.map((s) => ({
+            stopId: s.stopId,
+            seq: s.seq,
+            offsetMin: s.offsetMin,
+            lat: s.lat,
+            lng: s.lng,
+            distanceM: hasRoadGeometry ? s.roadDistanceM : null,
+          })),
+        ),
+      );
+    }
+
+    const path = prepared.get(arrival.routeId);
+    if (!path) continue;
+
+    if (!projections.has(arrival.tripId)) {
+      projections.set(arrival.tripId, projectOnPath({ lat: position.lat, lng: position.lng }, path));
+    }
+
+    const live = etaOnPath({
       position: { lat: position.lat, lng: position.lng, recordedAt: position.recordedAt, speedKph: position.speedKph },
-      routeStops: points,
+      path,
+      projection: projections.get(arrival.tripId),
       targetStopId: arrival.stopId,
       now,
-      fallbackSpeedKph: plannedSpeedKph(points),
+      fallbackSpeedKph: plannedSpeedOnPath(path),
     });
     if (!live) continue;
 
@@ -330,7 +399,14 @@ export interface TripDetail {
   date: string;
   startTime: string;
   status: "planned" | "in_progress" | "completed" | "cancelled";
-  route: { id: string; name: string; color: string; direction: "to_work" | "from_work"; description: string | null };
+  route: {
+    id: string;
+    name: string;
+    color: string;
+    direction: "to_work" | "from_work";
+    description: string | null;
+    path: [number, number][] | null;
+  };
   vehicle: { id: string; number: string; model: string; capacity: number } | null;
   driver: { id: string; name: string; phone: string } | null;
   stops: TripStopRow[];
@@ -364,6 +440,7 @@ export async function getTrip(tripId: string, passengerId?: string): Promise<Tri
         stopId: routeStops.stopId,
         seq: routeStops.seq,
         offsetMin: routeStops.offsetMin,
+        roadDistanceM: routeStops.roadDistanceM,
         name: stops.name,
         lat: stops.lat,
         lng: stops.lng,
@@ -395,6 +472,7 @@ export async function getTrip(tripId: string, passengerId?: string): Promise<Tri
       color: row.route.color,
       direction: row.route.direction,
       description: row.route.description,
+      path: row.route.path ?? null,
     },
     vehicle: row.vehicle
       ? { id: row.vehicle.id, number: row.vehicle.number, model: row.vehicle.model, capacity: row.vehicle.capacity }

@@ -33,7 +33,14 @@ export default async function RoutePage({ params }: { params: Promise<{ id: stri
 
         <MapPanel
           className="h-60 w-full rounded-[--radius-card] border border-border"
-          lines={[{ id: route.id, color: route.color, points: route.stops.map((s) => [s.lat, s.lng]) }]}
+          lines={[
+            {
+              id: route.id,
+              color: route.color,
+              // The stored road geometry, or straight lines until it is built.
+              points: route.path ?? route.stops.map((s) => [s.lat, s.lng] as [number, number]),
+            },
+          ]}
           stops={route.stops.map((s, i) => ({
             id: s.stopId,
             name: s.name,

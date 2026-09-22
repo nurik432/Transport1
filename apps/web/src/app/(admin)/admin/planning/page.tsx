@@ -291,7 +291,9 @@ export default async function PlanningPage() {
                     <IconUsers className="size-4" />
                     ожидается {proposal.expectedPassengers} пассажиров
                   </span>
-                  <span>протяжённость {(proposal.totalDistanceM / 1000).toFixed(1).replace(".", ",")} км</span>
+                  <span>
+                    протяжённость по прямой {(proposal.totalDistanceM / 1000).toFixed(1).replace(".", ",")} км
+                  </span>
                   <span>время в пути около {proposal.durationMin} мин</span>
                 </p>
 
@@ -306,6 +308,11 @@ export default async function PlanningPage() {
                     </Row>
                   ))}
                 </Table>
+
+                <p className="mt-3 text-xs text-muted-foreground">
+                  Расстояние и время — предварительная оценка по прямой. Точный путь по дорогам построится при создании
+                  черновика.
+                </p>
 
                 <div className="mt-4">
                   <CreateRouteDraftButton

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { ActionButton } from "@/components/entity-form";
-import { deleteRoute } from "../actions";
+import { deleteRoute, rebuildGeometry } from "../actions";
 
 export function RouteRowActions({ id, name }: { id: string; name: string }) {
   return (
@@ -21,5 +21,17 @@ export function RouteRowActions({ id, name }: { id: string; name: string }) {
         confirm={`Удалить маршрут ${name}? Если по нему есть завершённые рейсы, он будет переведён в неактивные.`}
       />
     </span>
+  );
+}
+
+/** Rebuilds the road geometry of every route through the routing provider. */
+export function RebuildGeometryButton() {
+  return (
+    <ActionButton
+      action={rebuildGeometry}
+      label="Построить путь по дорогам"
+      variant="secondary"
+      confirm="Запросить геометрию всех маршрутов у сервиса маршрутизации? Это займёт несколько секунд."
+    />
   );
 }

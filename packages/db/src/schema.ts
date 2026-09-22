@@ -117,6 +117,13 @@ export const routes = pgTable("routes", {
   status: routeStatus("status").notNull().default("active"),
   plannedCapacity: integer("planned_capacity"),
   color: text("color").notNull().default("#2563eb"),
+  /** road geometry as [lat, lng] pairs; null until it has been built */
+  path: jsonb("path").$type<[number, number][]>(),
+  /** total length of the geometry above, in metres */
+  pathDistanceM: integer("path_distance_m"),
+  /** "road" when a routing provider returned it, "straight" for the fallback */
+  pathSource: text("path_source"),
+  pathUpdatedAt: timestamp("path_updated_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -133,6 +140,8 @@ export const routeStops = pgTable(
       .references(() => stops.id, { onDelete: "restrict" }),
     seq: integer("seq").notNull(), // 1-based order
     offsetMin: integer("offset_min").notNull(), // minutes from departure
+    /** distance from the route start along the road, in metres */
+    roadDistanceM: integer("road_distance_m"),
   },
   (t) => [
     uniqueIndex("route_stops_route_seq_idx").on(t.routeId, t.seq),

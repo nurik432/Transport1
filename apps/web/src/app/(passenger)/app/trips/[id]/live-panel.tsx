@@ -44,6 +44,7 @@ export function TripLivePanel({
   stops,
   routeName,
   routeColor,
+  routeLine,
   myStopId,
 }: {
   tripId: string;
@@ -51,6 +52,8 @@ export function TripLivePanel({
   stops: LiveStop[];
   routeName: string;
   routeColor: string;
+  /** road geometry of the route; straight lines between stops when absent */
+  routeLine?: [number, number][] | null;
   myStopId?: string;
 }) {
   const live = useTripLive(tripId, active);
@@ -84,7 +87,13 @@ export function TripLivePanel({
 
       <MapPanel
         className="h-56 w-full rounded-[--radius-card] border border-border"
-        lines={[{ id: tripId, color: routeColor, points: stops.map((s) => [s.lat, s.lng] as [number, number]) }]}
+        lines={[
+          {
+            id: tripId,
+            color: routeColor,
+            points: routeLine ?? stops.map((s) => [s.lat, s.lng] as [number, number]),
+          },
+        ]}
         stops={stops.map((s) => ({
           id: s.stopId,
           name: s.name,

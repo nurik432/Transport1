@@ -81,6 +81,7 @@ export default async function TripPage({ params }: { params: Promise<{ id: strin
           active={trip.status === "in_progress"}
           routeName={trip.route.name}
           routeColor={trip.route.color}
+          routeLine={trip.route.path}
           myStopId={myStopId}
           stops={trip.stops.map((s) => ({
             stopId: s.stopId,

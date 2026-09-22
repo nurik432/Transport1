@@ -28,7 +28,13 @@ export default async function EditRoutePage({ params }: { params: Promise<{ id: 
       <div className="mb-6">
         <MapPanel
           className="h-72 w-full rounded-[--radius-card] border border-border"
-          lines={[{ id: route.id, color: route.color, points: route.stops.map((s) => [s.lat, s.lng]) }]}
+          lines={[
+            {
+              id: route.id,
+              color: route.color,
+              points: route.path ?? route.stops.map((s) => [s.lat, s.lng] as [number, number]),
+            },
+          ]}
           stops={route.stops.map((s, i) => ({
             id: s.stopId,
             name: s.name,

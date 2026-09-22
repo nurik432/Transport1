@@ -28,7 +28,12 @@ export default async function LivePage() {
         stops={[...stopById.values()]}
         lines={routes
           .filter((r) => r.direction === "to_work")
-          .map((r) => ({ id: r.id, color: r.color, points: r.stops.map((s) => [s.lat, s.lng] as [number, number]), dashed: true }))}
+          .map((r) => ({
+            id: r.id,
+            color: r.color,
+            points: r.path ?? r.stops.map((s) => [s.lat, s.lng] as [number, number]),
+            dashed: true,
+          }))}
         initialVehicles={vehicles.map((v) => ({ ...v, recordedAt: v.recordedAt.toISOString() }))}
         initialSignals={signals}
       />

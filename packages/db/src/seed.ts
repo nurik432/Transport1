@@ -2,6 +2,7 @@ import "dotenv/config";
 import bcrypt from "bcryptjs";
 import { addDays, localDateTime, localNow, parseTimeToMinutes, weekdayOfDate } from "@transport/domain";
 import { createDb } from "./client";
+import { rebuildAllRouteGeometry } from "./routing";
 import * as s from "./schema";
 
 /*
@@ -455,6 +456,16 @@ async function main() {
       payload: {},
     },
   ]);
+
+  // Road geometry: without it the maps draw straight lines between stops.
+  console.log("building road geometry...");
+  const geometry = await rebuildAllRouteGeometry(db);
+  const onRoads = geometry.filter((g) => g.source === "road").length;
+  console.log(
+    onRoads === geometry.length
+      ? `road geometry built for all ${geometry.length} routes`
+      : `road geometry: ${onRoads} of ${geometry.length} routes (rest on straight lines, run \`pnpm db:geometry\` later)`,
+  );
 
   const unserved = UNSERVED_AREAS.reduce((n, a) => n + a.people, 0);
   console.log(`seeded: ${stopRows.length} stops, ${routeCtxs.length} routes, ${vehicleRows.length} vehicles, ${driverUsers.length} drivers, ${passengerCtxs.length + unserved} passengers (${unserved} без маршрута), ${tripCount} trips`);

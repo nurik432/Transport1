@@ -4,7 +4,7 @@ import { listRoutes } from "@/lib/queries";
 import { buildAnalytics, DIRECTION_LABEL } from "@/lib/analytics";
 import { AdminMain, Cell, PageHeader, Row, Table } from "@/components/admin-ui";
 import { LinkButton, LoadBar, RouteBadge, StatusPill } from "@/components/ui";
-import { RouteRowActions } from "./route-actions";
+import { RebuildGeometryButton, RouteRowActions } from "./route-actions";
 
 const STATUS_LABEL: Record<string, string> = { active: "Активен", draft: "Черновик", inactive: "Отключён" };
 
@@ -18,10 +18,17 @@ export default async function RoutesPage() {
       <PageHeader
         title="Маршруты"
         description="Маршрут описывает одно направление. Утренний и вечерний рейсы — две записи с одним номером."
-        action={<LinkButton href="/admin/routes/new" variant="primary">Создать маршрут</LinkButton>}
+        action={
+          <span className="flex flex-wrap items-center gap-2">
+            <RebuildGeometryButton />
+            <LinkButton href="/admin/routes/new" variant="primary">
+              Создать маршрут
+            </LinkButton>
+          </span>
+        }
       />
 
-      <Table head={["Маршрут", "Направление", "Остановок", "Отправлений", "Средняя загрузка", "Статус", "Состояние", ""]}>
+      <Table head={["Маршрут", "Направление", "Остановок", "Путь", "Средняя загрузка", "Статус", "Состояние", ""]}>
         {routes.map((r) => {
           const a = statsById.get(r.id);
           return (
@@ -34,8 +41,12 @@ export default async function RoutesPage() {
               </Cell>
               <Cell className="text-muted-foreground">{DIRECTION_LABEL[r.direction]}</Cell>
               <Cell className="tabular-nums">{r.stops.length}</Cell>
-              <Cell className="text-muted-foreground tabular-nums">
-                {r.schedules.length ? r.schedules.map((s) => s.departureTime).join(", ") : "—"}
+              <Cell className="whitespace-nowrap text-muted-foreground tabular-nums">
+                {r.pathSource === "road" && r.pathDistanceM ? (
+                  `${(r.pathDistanceM / 1000).toFixed(1).replace(".", ",")} км по дорогам`
+                ) : (
+                  <span className="text-warn">прямые линии</span>
+                )}
               </Cell>
               <Cell className="w-48">{a ? <LoadBar pct={a.stats.avgPct} /> : "—"}</Cell>
               <Cell>{a ? <StatusPill status={a.stats.status} /> : null}</Cell>

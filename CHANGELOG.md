@@ -121,3 +121,9 @@ Mechanical record only - see git history for diffs and rationale._
 - 2026-09-21 14:15  Write  C:/Users/fid926309449/transport1/apps/web/src/app/(admin)/admin/planning/proposal-actions.tsx
 - 2026-09-21 14:16  Write  C:/Users/fid926309449/transport1/apps/web/src/app/(admin)/admin/planning/page.tsx
 - 2026-09-21 14:31  Write  C:/Users/fid926309449/transport1/apps/web/next.config.ts
+- 2026-09-21 14:36  Write  C:/Users/fid926309449/.claude/projects/C--Users-fid926309449-transport1/memory/transport-project-context.md
+- 2026-09-22 07:22  Write  C:/Users/fid926309449/transport1/packages/domain/src/live.ts
+- 2026-09-22 07:23  Write  C:/Users/fid926309449/transport1/packages/domain/test/path.test.ts
+- 2026-09-22 07:24  Write  C:/Users/fid926309449/transport1/apps/web/src/lib/routing.ts
+- 2026-09-22 07:25  Write  C:/Users/fid926309449/transport1/packages/db/src/routing.ts
+- 2026-09-22 07:25  Write  C:/Users/fid926309449/transport1/packages/db/src/geometry.ts
