@@ -137,3 +137,4 @@ Mechanical record only - see git history for diffs and rationale._
 - 2026-09-22 07:52  Write  C:/Users/fid926309449/transport1/apps/web/src/app/(admin)/admin/routes/route-editor.tsx
 - 2026-09-22 07:53  Write  C:/Users/fid926309449/transport1/apps/web/src/app/(admin)/admin/routes/[id]/page.tsx
 - 2026-09-22 07:53  Write  C:/Users/fid926309449/transport1/apps/web/src/app/(admin)/admin/routes/new/page.tsx
+- 2026-09-22 11:23  Write  C:/Users/FID926~1/AppData/Local/Temp/claude/patch_docs.py
