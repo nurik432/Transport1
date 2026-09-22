@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   boolean,
   date,
   doublePrecision,
@@ -117,24 +118,54 @@ export const routes = pgTable("routes", {
   status: routeStatus("status").notNull().default("active"),
   plannedCapacity: integer("planned_capacity"),
   color: text("color").notNull().default("#2563eb"),
-  /** road geometry as [lat, lng] pairs; null until it has been built */
-  path: jsonb("path").$type<[number, number][]>(),
-  /** total length of the geometry above, in metres */
-  pathDistanceM: integer("path_distance_m"),
-  /** "road" when a routing provider returned it, "straight" for the fallback */
-  pathSource: text("path_source"),
-  pathUpdatedAt: timestamp("path_updated_at", { withTimezone: true }),
+  /** the version passengers and new trips see; stops and geometry live there */
+  currentVersionId: uuid("current_version_id").references((): AnyPgColumn => routeVersions.id, {
+    onDelete: "set null",
+  }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const routeStops = pgTable(
-  "route_stops",
+/**
+ * A snapshot of a route's shape: its stop order, time offsets and road geometry.
+ * A new version is created whenever the stops change, so trips that already ran
+ * keep pointing at the shape they actually followed and history stays correct.
+ */
+export const routeVersions = pgTable(
+  "route_versions",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     routeId: uuid("route_id")
       .notNull()
       .references(() => routes.id, { onDelete: "cascade" }),
+    /** 1, 2, 3 … within one route */
+    version: integer("version").notNull(),
+    /** what the administrator changed */
+    note: text("note"),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    /** road geometry as [lat, lng] pairs; null until it has been built */
+    path: jsonb("path").$type<[number, number][]>(),
+    /** total length of the geometry above, in metres */
+    pathDistanceM: integer("path_distance_m"),
+    /** "road" when a routing provider returned it, "straight" for the fallback */
+    pathSource: text("path_source"),
+    pathUpdatedAt: timestamp("path_updated_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("route_versions_route_version_idx").on(t.routeId, t.version)],
+);
+
+export const routeStops = pgTable(
+  "route_stops",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** kept alongside the version for convenient "all stops of this route" queries */
+    routeId: uuid("route_id")
+      .notNull()
+      .references(() => routes.id, { onDelete: "cascade" }),
+    versionId: uuid("version_id")
+      .notNull()
+      .references(() => routeVersions.id, { onDelete: "cascade" }),
     stopId: uuid("stop_id")
       .notNull()
       .references(() => stops.id, { onDelete: "restrict" }),
@@ -144,8 +175,9 @@ export const routeStops = pgTable(
     roadDistanceM: integer("road_distance_m"),
   },
   (t) => [
-    uniqueIndex("route_stops_route_seq_idx").on(t.routeId, t.seq),
-    uniqueIndex("route_stops_route_stop_idx").on(t.routeId, t.stopId),
+    uniqueIndex("route_stops_version_seq_idx").on(t.versionId, t.seq),
+    uniqueIndex("route_stops_version_stop_idx").on(t.versionId, t.stopId),
+    index("route_stops_route_idx").on(t.routeId),
   ],
 );
 
@@ -178,6 +210,8 @@ export const trips = pgTable(
     routeId: uuid("route_id")
       .notNull()
       .references(() => routes.id, { onDelete: "cascade" }),
+    /** the route shape this trip follows; pinned when the trip is created */
+    routeVersionId: uuid("route_version_id").references(() => routeVersions.id, { onDelete: "set null" }),
     scheduleId: uuid("schedule_id").references(() => routeSchedules.id, { onDelete: "set null" }),
     vehicleId: uuid("vehicle_id").references(() => vehicles.id, { onDelete: "set null" }),
     driverId: uuid("driver_id").references(() => drivers.userId, { onDelete: "set null" }),
@@ -348,6 +382,7 @@ export type Vehicle = typeof vehicles.$inferSelect;
 export type Stop = typeof stops.$inferSelect;
 export type Route = typeof routes.$inferSelect;
 export type RouteStop = typeof routeStops.$inferSelect;
+export type RouteVersion = typeof routeVersions.$inferSelect;
 export type RouteSchedule = typeof routeSchedules.$inferSelect;
 export type Trip = typeof trips.$inferSelect;
 export type TripStopEvent = typeof tripStopEvents.$inferSelect;

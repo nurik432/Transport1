@@ -127,3 +127,13 @@ Mechanical record only - see git history for diffs and rationale._
 - 2026-09-22 07:24  Write  C:/Users/fid926309449/transport1/apps/web/src/lib/routing.ts
 - 2026-09-22 07:25  Write  C:/Users/fid926309449/transport1/packages/db/src/routing.ts
 - 2026-09-22 07:25  Write  C:/Users/fid926309449/transport1/packages/db/src/geometry.ts
+- 2026-09-22 07:42  Write  C:/Users/fid926309449/transport1/packages/db/drizzle/0003_route_versions.sql
+- 2026-09-22 07:47  Write  C:/Users/FID926~1/AppData/Local/Temp/claude/patch_actions.py
+- 2026-09-22 07:47  Write  C:/Users/FID926~1/AppData/Local/Temp/claude/patch_draft.py
+- 2026-09-22 07:48  Write  C:/Users/FID926~1/AppData/Local/Temp/claude/patch_live.py
+- 2026-09-22 07:49  Write  C:/Users/FID926~1/AppData/Local/Temp/claude/patch_versions_query.py
+- 2026-09-22 07:51  Write  C:/Users/FID926~1/AppData/Local/Temp/claude/patch_mapview.py
+- 2026-09-22 07:51  Write  C:/Users/fid926309449/transport1/apps/web/src/app/api/v1/routing/preview/route.ts
+- 2026-09-22 07:52  Write  C:/Users/fid926309449/transport1/apps/web/src/app/(admin)/admin/routes/route-editor.tsx
+- 2026-09-22 07:53  Write  C:/Users/fid926309449/transport1/apps/web/src/app/(admin)/admin/routes/[id]/page.tsx
+- 2026-09-22 07:53  Write  C:/Users/fid926309449/transport1/apps/web/src/app/(admin)/admin/routes/new/page.tsx

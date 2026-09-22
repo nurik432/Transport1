@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
 import { addDays, localDateTime, localNow, parseTimeToMinutes, weekdayOfDate } from "@transport/domain";
 import { createDb } from "./client";
@@ -217,6 +218,7 @@ async function main() {
     line: LineDef;
     direction: "to_work" | "from_work";
     routeId: string;
+    versionId: string;
     routeStops: { stopId: string; stopKey: StopKey; seq: number; offsetMin: number }[];
     schedules: { id: string; departureTime: string }[];
     vehicle: (typeof vehicleRows)[number];
@@ -235,9 +237,22 @@ async function main() {
           plannedCapacity: VEHICLES[line.vehicle]!.capacity,
         })
         .returning();
+      // Every route starts at version 1; the shape lives on the version.
+      const [version] = await db
+        .insert(s.routeVersions)
+        .values({ routeId: route!.id, version: 1, note: "Первоначальная версия" })
+        .returning();
+      await db.update(s.routes).set({ currentVersionId: version!.id }).where(eq(s.routes.id, route!.id));
+
       const ordered = direction === "to_work" ? line.stops : [...line.stops].reverse();
       const offsets = direction === "to_work" ? line.stops.map((x) => x.offset) : line.eveningOffsets;
-      const rsValues = ordered.map((st, i) => ({ routeId: route!.id, stopId: stopId.get(st.key)!, seq: i + 1, offsetMin: offsets[i]! }));
+      const rsValues = ordered.map((st, i) => ({
+        routeId: route!.id,
+        versionId: version!.id,
+        stopId: stopId.get(st.key)!,
+        seq: i + 1,
+        offsetMin: offsets[i]!,
+      }));
       await db.insert(s.routeStops).values(rsValues);
       const times = direction === "to_work" ? line.morning : line.evening;
       const scheduleRows = await db
@@ -248,6 +263,7 @@ async function main() {
         line,
         direction,
         routeId: route!.id,
+        versionId: version!.id,
         routeStops: rsValues.map((v, i) => ({ ...v, stopKey: ordered[i]!.key })),
         schedules: scheduleRows.map((r) => ({ id: r.id, departureTime: r.departureTime })),
         vehicle: vehicleRows[line.vehicle]!,
@@ -362,6 +378,7 @@ async function main() {
           .insert(s.trips)
           .values({
             routeId: rc.routeId,
+            routeVersionId: rc.versionId,
             scheduleId: sched.id,
             vehicleId: rc.vehicle.id,
             driverId: rc.driverId,

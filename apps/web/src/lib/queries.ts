@@ -18,8 +18,11 @@ import {
 } from "@transport/domain";
 import { db, schema } from "./db";
 
-const { routes, routeStops, routeSchedules, stops, trips, tripStopEvents, passengerTrips, vehicles, users, drivers, passengers, settings } =
+const { routes, routeVersions, routeStops, routeSchedules, stops, trips, tripStopEvents, passengerTrips, vehicles, users, drivers, passengers, settings } =
   schema;
+
+/** The shape a trip ran on, falling back to the route's current shape. */
+const tripVersionId = sql<string>`coalesce(${trips.routeVersionId}, ${routes.currentVersionId})`;
 
 // ---------------------------------------------------------------- settings
 
@@ -61,6 +64,9 @@ export interface RouteDetail {
   status: "draft" | "active" | "inactive";
   color: string;
   plannedCapacity: number | null;
+  /** id and number of the version these stops and this geometry belong to */
+  versionId: string | null;
+  version: number | null;
   /** road polyline as [lat, lng] pairs; null until the geometry is built */
   path: [number, number][] | null;
   pathSource: "road" | "straight" | null;
@@ -72,30 +78,47 @@ export interface RouteDetail {
 /** All routes with their stops and schedules. `onlyActive` filters out drafts. */
 export async function listRoutes(onlyActive = true): Promise<RouteDetail[]> {
   const routeRows = await db
-    .select()
+    .select({
+      id: routes.id,
+      name: routes.name,
+      description: routes.description,
+      direction: routes.direction,
+      status: routes.status,
+      color: routes.color,
+      plannedCapacity: routes.plannedCapacity,
+      versionId: routes.currentVersionId,
+      version: routeVersions.version,
+      path: routeVersions.path,
+      pathSource: routeVersions.pathSource,
+      pathDistanceM: routeVersions.pathDistanceM,
+    })
     .from(routes)
+    .leftJoin(routeVersions, eq(routeVersions.id, routes.currentVersionId))
     .where(onlyActive ? eq(routes.status, "active") : sql`true`)
     .orderBy(asc(routes.name), asc(routes.direction));
   if (!routeRows.length) return [];
 
   const ids = routeRows.map((r) => r.id);
+  const versionIds = routeRows.map((r) => r.versionId).filter((v): v is string => Boolean(v));
   const [stopRows, scheduleRows] = await Promise.all([
-    db
-      .select({
-        routeId: routeStops.routeId,
-        stopId: routeStops.stopId,
-        seq: routeStops.seq,
-        offsetMin: routeStops.offsetMin,
-        roadDistanceM: routeStops.roadDistanceM,
-        name: stops.name,
-        lat: stops.lat,
-        lng: stops.lng,
-        address: stops.address,
-      })
-      .from(routeStops)
-      .innerJoin(stops, eq(stops.id, routeStops.stopId))
-      .where(inArray(routeStops.routeId, ids))
-      .orderBy(asc(routeStops.seq)),
+    versionIds.length
+      ? db
+          .select({
+            versionId: routeStops.versionId,
+            stopId: routeStops.stopId,
+            seq: routeStops.seq,
+            offsetMin: routeStops.offsetMin,
+            roadDistanceM: routeStops.roadDistanceM,
+            name: stops.name,
+            lat: stops.lat,
+            lng: stops.lng,
+            address: stops.address,
+          })
+          .from(routeStops)
+          .innerJoin(stops, eq(stops.id, routeStops.stopId))
+          .where(inArray(routeStops.versionId, versionIds))
+          .orderBy(asc(routeStops.seq))
+      : Promise.resolve([]),
     db
       .select()
       .from(routeSchedules)
@@ -111,11 +134,13 @@ export async function listRoutes(onlyActive = true): Promise<RouteDetail[]> {
     status: r.status,
     color: r.color,
     plannedCapacity: r.plannedCapacity,
+    versionId: r.versionId,
+    version: r.version,
     path: r.path ?? null,
     pathSource: (r.pathSource as "road" | "straight" | null) ?? null,
     pathDistanceM: r.pathDistanceM,
     stops: stopRows
-      .filter((s) => s.routeId === r.id)
+      .filter((s) => s.versionId === r.versionId)
       .map((s) => ({
         stopId: s.stopId,
         seq: s.seq,
@@ -137,6 +162,83 @@ export async function getRoute(id: string): Promise<RouteDetail | null> {
   return all.find((r) => r.id === id) ?? null;
 }
 
+export interface RouteVersionSummary {
+  id: string;
+  version: number;
+  note: string | null;
+  createdAt: Date;
+  createdByName: string | null;
+  isCurrent: boolean;
+  stopCount: number;
+  /** trips that ran or will run on this shape */
+  tripCount: number;
+  completedTripCount: number;
+  pathSource: "road" | "straight" | null;
+  pathDistanceM: number | null;
+  stopNames: string[];
+}
+
+/**
+ * The change history of a route's shape, newest first.
+ * Shows how many trips each version carries, which is why old versions must stay.
+ */
+export async function getRouteVersions(routeId: string): Promise<RouteVersionSummary[]> {
+  const [versionRows, currentRow, stopRows, tripRows] = await Promise.all([
+    db
+      .select({
+        id: routeVersions.id,
+        version: routeVersions.version,
+        note: routeVersions.note,
+        createdAt: routeVersions.createdAt,
+        createdByName: users.name,
+        pathSource: routeVersions.pathSource,
+        pathDistanceM: routeVersions.pathDistanceM,
+      })
+      .from(routeVersions)
+      .leftJoin(users, eq(users.id, routeVersions.createdBy))
+      .where(eq(routeVersions.routeId, routeId))
+      .orderBy(desc(routeVersions.version)),
+    db.select({ currentVersionId: routes.currentVersionId }).from(routes).where(eq(routes.id, routeId)).limit(1),
+    db
+      .select({ versionId: routeStops.versionId, seq: routeStops.seq, name: stops.name })
+      .from(routeStops)
+      .innerJoin(stops, eq(stops.id, routeStops.stopId))
+      .where(eq(routeStops.routeId, routeId))
+      .orderBy(asc(routeStops.seq)),
+    db
+      .select({
+        versionId: trips.routeVersionId,
+        total: count(),
+        completed: sql<number>`count(*) filter (where ${trips.status} = 'completed')`,
+      })
+      .from(trips)
+      .where(eq(trips.routeId, routeId))
+      .groupBy(trips.routeVersionId),
+  ]);
+
+  const currentVersionId = currentRow[0]?.currentVersionId ?? null;
+  const tripsByVersion = new Map(tripRows.map((t) => [t.versionId, t]));
+
+  return versionRows.map((v) => {
+    const versionStops = stopRows.filter((s) => s.versionId === v.id);
+    const tripStats = tripsByVersion.get(v.id);
+    return {
+      id: v.id,
+      version: v.version,
+      note: v.note,
+      createdAt: v.createdAt,
+      createdByName: v.createdByName,
+      isCurrent: v.id === currentVersionId,
+      stopCount: versionStops.length,
+      tripCount: Number(tripStats?.total ?? 0),
+      completedTripCount: Number(tripStats?.completed ?? 0),
+      pathSource: (v.pathSource as "road" | "straight" | null) ?? null,
+      pathDistanceM: v.pathDistanceM,
+      stopNames: versionStops.map((s) => s.name),
+    };
+  });
+}
+
 export async function listStops() {
   return db.select().from(stops).orderBy(asc(stops.name));
 }
@@ -146,6 +248,8 @@ export async function listStops() {
 export interface Arrival {
   tripId: string;
   routeId: string;
+  /** the route shape this trip follows */
+  versionId: string;
   routeName: string;
   routeColor: string;
   direction: "to_work" | "from_work";
@@ -193,25 +297,26 @@ export async function getUpcomingArrivals(opts: UpcomingArrivalsOptions): Promis
       stopName: stops.name,
       seq: routeStops.seq,
       offsetMin: routeStops.offsetMin,
+      versionId: tripVersionId,
       vehicleNumber: vehicles.number,
       vehicleModel: vehicles.model,
       vehicleCapacity: vehicles.capacity,
     })
     .from(trips)
     .innerJoin(routes, eq(routes.id, trips.routeId))
-    .innerJoin(routeStops, and(eq(routeStops.routeId, trips.routeId), inArray(routeStops.stopId, stopIds)))
+    .innerJoin(routeStops, and(eq(routeStops.versionId, tripVersionId), inArray(routeStops.stopId, stopIds)))
     .innerJoin(stops, eq(stops.id, routeStops.stopId))
     .leftJoin(vehicles, eq(vehicles.id, trips.vehicleId))
     .where(and(inArray(trips.date, dates), inArray(trips.status, ["planned", "in_progress"])));
   if (!rows.length) return [];
 
   const tripIds = [...new Set(rows.map((r) => r.tripId))];
-  const routeIds = [...new Set(rows.map((r) => r.routeId))];
+  const versionIds = [...new Set(rows.map((r) => r.versionId))].filter(Boolean);
 
   const [allRouteStops, events, bookings, myBookings] = await Promise.all([
     db
       .select({
-        routeId: routeStops.routeId,
+        versionId: routeStops.versionId,
         stopId: routeStops.stopId,
         seq: routeStops.seq,
         offsetMin: routeStops.offsetMin,
@@ -221,7 +326,7 @@ export async function getUpcomingArrivals(opts: UpcomingArrivalsOptions): Promis
       })
       .from(routeStops)
       .innerJoin(stops, eq(stops.id, routeStops.stopId))
-      .where(inArray(routeStops.routeId, routeIds)),
+      .where(inArray(routeStops.versionId, versionIds)),
     db
       .select({ tripId: tripStopEvents.tripId, stopId: tripStopEvents.stopId, arrivedAt: tripStopEvents.arrivedAt, departedAt: tripStopEvents.departedAt })
       .from(tripStopEvents)
@@ -253,7 +358,7 @@ export async function getUpcomingArrivals(opts: UpcomingArrivalsOptions): Promis
     const tripStartAt = localDateTime(r.date, parseTimeToMinutes(r.startTime));
     const eta = etaForStop({
       tripStartAt,
-      routeStops: allRouteStops.filter((rs) => rs.routeId === r.routeId),
+      routeStops: allRouteStops.filter((rs) => rs.versionId === r.versionId),
       events: events.filter((e) => e.tripId === r.tripId),
       targetStopId: r.stopId,
       now,
@@ -262,6 +367,7 @@ export async function getUpcomingArrivals(opts: UpcomingArrivalsOptions): Promis
     arrivals.push({
       tripId: r.tripId,
       routeId: r.routeId,
+      versionId: r.versionId,
       routeName: r.routeName,
       routeColor: r.routeColor,
       direction: r.direction,
@@ -292,7 +398,7 @@ export async function getUpcomingArrivals(opts: UpcomingArrivalsOptions): Promis
 async function applyLivePositions(
   arrivals: Arrival[],
   routeStopRows: {
-    routeId: string;
+    versionId: string;
     stopId: string;
     seq: number;
     offsetMin: number;
@@ -305,8 +411,8 @@ async function applyLivePositions(
   const running = [...new Set(arrivals.filter((a) => a.status === "in_progress").map((a) => a.tripId))];
   if (!running.length) return;
 
-  const routeIds = [...new Set(arrivals.filter((a) => a.status === "in_progress").map((a) => a.routeId))];
-  const [positions, routeRows] = await Promise.all([
+  const versionIds = [...new Set(arrivals.filter((a) => a.status === "in_progress").map((a) => a.versionId))];
+  const [positions, versionRows] = await Promise.all([
     db
       .select({
         tripId: schema.vehiclePositions.tripId,
@@ -318,12 +424,15 @@ async function applyLivePositions(
       .from(schema.vehiclePositions)
       .where(inArray(schema.vehiclePositions.tripId, running))
       .orderBy(desc(schema.vehiclePositions.recordedAt)),
-    db.select({ id: routes.id, path: routes.path }).from(routes).where(inArray(routes.id, routeIds)),
+    db
+      .select({ id: routeVersions.id, path: routeVersions.path })
+      .from(routeVersions)
+      .where(inArray(routeVersions.id, versionIds)),
   ]);
 
   const latest = new Map<string, (typeof positions)[number]>();
   for (const p of positions) if (!latest.has(p.tripId)) latest.set(p.tripId, p);
-  const storedPaths = new Map(routeRows.map((r) => [r.id, r.path]));
+  const storedPaths = new Map(versionRows.map((r) => [r.id, r.path]));
 
   // One prepared path and one projection per trip, reused across its stops.
   const prepared = new Map<string, ReturnType<typeof preparePath>>();
@@ -333,12 +442,12 @@ async function applyLivePositions(
     const position = latest.get(arrival.tripId);
     if (!position || trackingState(position.recordedAt, now) === "lost") continue;
 
-    if (!prepared.has(arrival.routeId)) {
-      const stopsOfRoute = routeStopRows.filter((rs) => rs.routeId === arrival.routeId);
-      const stored = storedPaths.get(arrival.routeId);
+    if (!prepared.has(arrival.versionId)) {
+      const stopsOfRoute = routeStopRows.filter((rs) => rs.versionId === arrival.versionId);
+      const stored = storedPaths.get(arrival.versionId);
       const hasRoadGeometry = Array.isArray(stored) && stored.length >= 2;
       prepared.set(
-        arrival.routeId,
+        arrival.versionId,
         preparePath(
           hasRoadGeometry
             ? stored.map(([lat, lng]) => ({ lat, lng }))
@@ -355,7 +464,7 @@ async function applyLivePositions(
       );
     }
 
-    const path = prepared.get(arrival.routeId);
+    const path = prepared.get(arrival.versionId);
     if (!path) continue;
 
     if (!projections.has(arrival.tripId)) {
@@ -406,6 +515,9 @@ export interface TripDetail {
     direction: "to_work" | "from_work";
     description: string | null;
     path: [number, number][] | null;
+    /** the version this trip ran on, so history shows what actually happened */
+    versionId: string | null;
+    version: number | null;
   };
   vehicle: { id: string; number: string; model: string; capacity: number } | null;
   driver: { id: string; name: string; phone: string } | null;
@@ -419,6 +531,9 @@ export async function getTrip(tripId: string, passengerId?: string): Promise<Tri
     .select({
       trip: trips,
       route: routes,
+      versionId: tripVersionId,
+      version: routeVersions.version,
+      versionPath: routeVersions.path,
       vehicle: vehicles,
       driverId: drivers.userId,
       driverName: users.name,
@@ -426,6 +541,7 @@ export async function getTrip(tripId: string, passengerId?: string): Promise<Tri
     })
     .from(trips)
     .innerJoin(routes, eq(routes.id, trips.routeId))
+    .leftJoin(routeVersions, eq(routeVersions.id, sql`coalesce(${trips.routeVersionId}, ${routes.currentVersionId})`))
     .leftJoin(vehicles, eq(vehicles.id, trips.vehicleId))
     .leftJoin(drivers, eq(drivers.userId, trips.driverId))
     .leftJoin(users, eq(users.id, drivers.userId))
@@ -448,7 +564,7 @@ export async function getTrip(tripId: string, passengerId?: string): Promise<Tri
       })
       .from(routeStops)
       .innerJoin(stops, eq(stops.id, routeStops.stopId))
-      .where(eq(routeStops.routeId, row.route.id))
+      .where(row.versionId ? eq(routeStops.versionId, row.versionId) : sql`false`)
       .orderBy(asc(routeStops.seq)),
     db.select().from(tripStopEvents).where(eq(tripStopEvents.tripId, tripId)),
     db
@@ -472,7 +588,9 @@ export async function getTrip(tripId: string, passengerId?: string): Promise<Tri
       color: row.route.color,
       direction: row.route.direction,
       description: row.route.description,
-      path: row.route.path ?? null,
+      path: row.versionPath ?? null,
+      versionId: row.versionId ?? null,
+      version: row.version ?? null,
     },
     vehicle: row.vehicle
       ? { id: row.vehicle.id, number: row.vehicle.number, model: row.vehicle.model, capacity: row.vehicle.capacity }
@@ -572,7 +690,8 @@ export async function getTripLoadRecords(q: LoadQuery): Promise<TripLoadRecord[]
     })
     .from(tripStopEvents)
     .innerJoin(trips, eq(trips.id, tripStopEvents.tripId))
-    .innerJoin(routeStops, and(eq(routeStops.routeId, trips.routeId), eq(routeStops.stopId, tripStopEvents.stopId)))
+    .innerJoin(routes, eq(routes.id, trips.routeId))
+    .innerJoin(routeStops, and(eq(routeStops.versionId, tripVersionId), eq(routeStops.stopId, tripStopEvents.stopId)))
     .where(inArray(tripStopEvents.tripId, tripIds));
 
   const byTrip = new Map<string, { seq: number; boarded: number; alighted: number }[]>();
@@ -608,7 +727,8 @@ export async function getStopLoadRecords(q: LoadQuery) {
     .from(tripStopEvents)
     .innerJoin(trips, eq(trips.id, tripStopEvents.tripId))
     .innerJoin(stops, eq(stops.id, tripStopEvents.stopId))
-    .innerJoin(routeStops, and(eq(routeStops.routeId, trips.routeId), eq(routeStops.stopId, tripStopEvents.stopId)))
+    .innerJoin(routes, eq(routes.id, trips.routeId))
+    .innerJoin(routeStops, and(eq(routeStops.versionId, tripVersionId), eq(routeStops.stopId, tripStopEvents.stopId)))
     .where(and(...where));
 
   const demand = await db

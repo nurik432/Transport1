@@ -2,13 +2,26 @@
 
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
+import { MapPanel } from "@/components/map";
 import { Button, Card, Field, SectionTitle, cx, inputClass } from "@/components/ui";
-import { IconMinus, IconPlus } from "@/components/icons";
+import { IconCheck, IconMinus, IconPin, IconPlus, IconRoute } from "@/components/icons";
 import { saveRoute } from "../actions";
 
 export interface StopOption {
   id: string;
   name: string;
+  lat: number;
+  lng: number;
+}
+
+/** One point of the route: an existing stop, or a place clicked on the map. */
+export interface EditorPoint {
+  /** null for a point placed on the map; the stop is created on save */
+  stopId: string | null;
+  name: string;
+  lat: number;
+  lng: number;
+  offsetMin: number;
 }
 
 export interface RouteEditorValue {
@@ -19,9 +32,32 @@ export interface RouteEditorValue {
   status: "draft" | "active" | "inactive";
   color: string;
   plannedCapacity: string;
-  stops: { stopId: string; offsetMin: number }[];
+  stops: EditorPoint[];
   departures: string[];
   daysOfWeek: number[];
+}
+
+export interface VersionSummary {
+  id: string;
+  version: number;
+  note: string | null;
+  createdAt: string;
+  createdByName: string | null;
+  isCurrent: boolean;
+  stopCount: number;
+  tripCount: number;
+  completedTripCount: number;
+  pathSource: "road" | "straight" | null;
+  pathDistanceM: number | null;
+  stopNames: string[];
+}
+
+interface PreviewState {
+  points: [number, number][];
+  totalDistanceM: number;
+  source: "road" | "straight";
+  suggestedOffsets: number[];
+  error?: string;
 }
 
 const WEEKDAYS = [
@@ -36,28 +72,82 @@ const WEEKDAYS = [
 
 const COLORS = ["#2563eb", "#dc2626", "#16a34a", "#ea580c", "#7c3aed", "#0891b2"];
 
+function formatKm(meters: number): string {
+  return `${(meters / 1000).toFixed(1).replace(".", ",")} км`;
+}
+
+function formatWhen(iso: string): string {
+  return new Intl.DateTimeFormat("ru-RU", {
+    timeZone: "Asia/Dushanbe",
+    day: "numeric",
+    month: "long",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(iso));
+}
+
 export function RouteEditor({
   initial,
   stopOptions,
+  versions = [],
+  savedPath = null,
+  savedDistanceM = null,
 }: {
   initial: RouteEditorValue;
   stopOptions: StopOption[];
+  versions?: VersionSummary[];
+  /** geometry of the version being edited, shown until the shape is changed */
+  savedPath?: [number, number][] | null;
+  savedDistanceM?: number | null;
 }) {
   const router = useRouter();
   const [value, setValue] = useState<RouteEditorValue>(initial);
+  const [versionNote, setVersionNote] = useState("");
   const [newDeparture, setNewDeparture] = useState("");
+  const [pendingPoint, setPendingPoint] = useState<{ lat: number; lng: number } | null>(null);
+  const [pendingName, setPendingName] = useState("");
+  // Start from the saved geometry; any change to the shape clears it.
+  const [preview, setPreview] = useState<PreviewState | null>(
+    savedPath && savedPath.length >= 2
+      ? { points: savedPath, totalDistanceM: savedDistanceM ?? 0, source: "road", suggestedOffsets: [] }
+      : null,
+  );
   const [result, setResult] = useState<{ ok: boolean; error?: string; message?: string } | null>(null);
   const [pending, start] = useTransition();
+  const [previewing, setPreviewing] = useState(false);
 
   const set = <K extends keyof RouteEditorValue>(key: K, v: RouteEditorValue[K]) =>
     setValue((prev) => ({ ...prev, [key]: v }));
 
-  function addStop() {
-    const used = new Set(value.stops.map((s) => s.stopId));
-    const next = stopOptions.find((s) => !used.has(s.id));
-    if (!next) return;
-    const lastOffset = value.stops.at(-1)?.offsetMin ?? -5;
-    set("stops", [...value.stops, { stopId: next.id, offsetMin: lastOffset + 5 }]);
+  /** Any edit to the shape invalidates a previously fetched preview. */
+  function setStops(stops: EditorPoint[]) {
+    setValue((prev) => ({ ...prev, stops }));
+    setPreview(null);
+  }
+
+  const usedStopIds = new Set(value.stops.map((s) => s.stopId).filter((id): id is string => Boolean(id)));
+  const nextOffset = (value.stops.at(-1)?.offsetMin ?? -5) + 5;
+
+  function addExistingStop(stopId: string) {
+    const stop = stopOptions.find((s) => s.id === stopId);
+    if (!stop || usedStopIds.has(stopId)) return;
+    setStops([...value.stops, { stopId: stop.id, name: stop.name, lat: stop.lat, lng: stop.lng, offsetMin: nextOffset }]);
+  }
+
+  function addPendingPoint() {
+    if (!pendingPoint) return;
+    setStops([
+      ...value.stops,
+      {
+        stopId: null,
+        name: pendingName.trim() || "Новая остановка",
+        lat: Number(pendingPoint.lat.toFixed(5)),
+        lng: Number(pendingPoint.lng.toFixed(5)),
+        offsetMin: nextOffset,
+      },
+    ]);
+    setPendingPoint(null);
+    setPendingName("");
   }
 
   function moveStop(index: number, delta: number) {
@@ -66,7 +156,43 @@ export function RouteEditor({
     const next = [...value.stops];
     const [item] = next.splice(index, 1);
     next.splice(target, 0, item!);
-    set("stops", next);
+    setStops(next);
+  }
+
+  async function loadPreview() {
+    if (value.stops.length < 2) return;
+    setPreviewing(true);
+    try {
+      const response = await fetch("/api/v1/routing/preview", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ points: value.stops.map((s) => ({ lat: s.lat, lng: s.lng })) }),
+      });
+      const json = await response.json();
+      if (json.ok) {
+        setPreview({
+          points: json.points,
+          totalDistanceM: json.totalDistanceM,
+          source: json.source,
+          suggestedOffsets: json.suggestedOffsets,
+          error: json.error,
+        });
+      } else {
+        setPreview(null);
+      }
+    } catch {
+      setPreview(null);
+    } finally {
+      setPreviewing(false);
+    }
+  }
+
+  function applySuggestedOffsets() {
+    if (!preview) return;
+    setValue((prev) => ({
+      ...prev,
+      stops: prev.stops.map((s, i) => ({ ...s, offsetMin: preview.suggestedOffsets[i] ?? s.offsetMin })),
+    }));
   }
 
   function submit() {
@@ -83,12 +209,37 @@ export function RouteEditor({
         stops: value.stops,
         departures: value.departures,
         daysOfWeek: value.daysOfWeek,
+        versionNote: versionNote || undefined,
       });
       setResult(res);
       if (res.ok && res.id && !value.id) router.push(`/admin/routes/${res.id}`);
-      else if (res.ok) router.refresh();
+      else if (res.ok) {
+        setVersionNote("");
+        router.refresh();
+      }
     });
   }
+
+  const mapStops = [
+    ...value.stops.map((s, i) => ({
+      id: `pt-${i}`,
+      name: s.name,
+      lat: s.lat,
+      lng: s.lng,
+      order: i + 1,
+      note: `Через ${s.offsetMin} мин${s.stopId ? "" : " · новая остановка"}`,
+    })),
+    ...stopOptions
+      .filter((s) => !usedStopIds.has(s.id))
+      .map((s) => ({ id: s.id, name: s.name, lat: s.lat, lng: s.lng, muted: true, note: "Нажмите, чтобы добавить" })),
+  ];
+
+  const mapLine = {
+    id: "editing",
+    color: value.color,
+    points: preview?.points ?? value.stops.map((s) => [s.lat, s.lng] as [number, number]),
+    dashed: !preview,
+  };
 
   return (
     <div className="flex flex-col gap-6">
@@ -157,46 +308,150 @@ export function RouteEditor({
         </div>
       </Card>
 
+      {/* ------------------------------------------------------------ map editor */}
       <Card>
         <SectionTitle
           action={
-            <Button variant="secondary" className="min-h-9 px-3 text-sm" onClick={addStop}>
-              <IconPlus className="size-4" />
-              Добавить остановку
-            </Button>
+            <span className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="secondary"
+                className="min-h-9 px-3 text-sm"
+                disabled={previewing || value.stops.length < 2}
+                onClick={() => void loadPreview()}
+              >
+                <IconRoute className="size-4" />
+                {previewing ? "Строим…" : "Показать путь по дорогам"}
+              </Button>
+              {preview && preview.suggestedOffsets.length > 0 ? (
+                <Button variant="secondary" className="min-h-9 px-3 text-sm" onClick={applySuggestedOffsets}>
+                  <IconCheck className="size-4" />
+                  Подставить время
+                </Button>
+              ) : null}
+            </span>
           }
         >
-          Остановки и время в пути
+          Точки маршрута на карте
         </SectionTitle>
 
+        <p className="mb-3 text-sm text-muted-foreground">
+          Нажмите на карту, чтобы поставить новую остановку, или на серую точку — чтобы добавить существующую.
+          Порядок точек задаёт порядок движения.
+        </p>
+
+        {pendingPoint ? (
+          <div className="mb-3 flex flex-wrap items-end gap-2 rounded-lg border border-primary bg-primary-soft/40 p-3">
+            <div className="min-w-48 flex-1">
+              <Field label="Название новой остановки" hint={`${pendingPoint.lat.toFixed(5)}, ${pendingPoint.lng.toFixed(5)}`}>
+                <input
+                  className={inputClass}
+                  value={pendingName}
+                  onChange={(e) => setPendingName(e.target.value)}
+                  placeholder="Например, Микрорайон 21"
+                  autoFocus
+                />
+              </Field>
+            </div>
+            <Button onClick={addPendingPoint}>
+              <IconPlus className="size-4" />
+              Добавить точку
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setPendingPoint(null);
+                setPendingName("");
+              }}
+            >
+              Отмена
+            </Button>
+          </div>
+        ) : null}
+
+        <MapPanel
+          className="h-96 w-full rounded-[--radius-card] border border-border"
+          stops={mapStops}
+          lines={value.stops.length >= 2 ? [mapLine] : []}
+          autoFit={false}
+          zoom={12}
+          onMapClick={(lat, lng) => {
+            setPendingPoint({ lat, lng });
+            setPendingName("");
+          }}
+          onStopClick={(id) => {
+            if (!id.startsWith("pt-")) addExistingStop(id);
+          }}
+        />
+
+        <p className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+          <span className="flex items-center gap-1">
+            <IconPin className="size-3.5" />
+            Точек в маршруте: {value.stops.length}
+          </span>
+          {preview ? (
+            <span>
+              {preview.source === "road"
+                ? `Путь по дорогам: ${formatKm(preview.totalDistanceM)}`
+                : `Маршрутизатор недоступен, показаны прямые линии${preview.error ? ` (${preview.error})` : ""}`}
+            </span>
+          ) : (
+            <span>Пунктирная линия — прямые отрезки. Нажмите «Показать путь по дорогам».</span>
+          )}
+        </p>
+      </Card>
+
+      {/* ------------------------------------------------------------ stop list */}
+      <Card>
+        <SectionTitle>Остановки и время в пути</SectionTitle>
+
         {value.stops.length === 0 ? (
-          <p className="py-4 text-sm text-muted-foreground">Добавьте минимум две остановки.</p>
+          <p className="py-4 text-sm text-muted-foreground">Добавьте минимум две остановки на карте выше.</p>
         ) : (
           <ol className="flex flex-col gap-2">
             {value.stops.map((s, i) => (
-              <li key={`${s.stopId}:${i}`} className="flex flex-wrap items-end gap-2 rounded-lg border border-border p-2">
+              <li key={`${s.stopId ?? "new"}-${i}`} className="flex flex-wrap items-end gap-2 rounded-lg border border-border p-2">
                 <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-semibold tabular-nums">
                   {i + 1}
                 </span>
+
                 <div className="min-w-48 flex-1">
-                  <Field label="Остановка">
-                    <select
-                      className={inputClass}
-                      value={s.stopId}
-                      onChange={(e) => {
-                        const next = [...value.stops];
-                        next[i] = { ...s, stopId: e.target.value };
-                        set("stops", next);
-                      }}
-                    >
-                      {stopOptions.map((o) => (
-                        <option key={o.id} value={o.id}>
-                          {o.name}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
+                  {s.stopId ? (
+                    <Field label="Остановка">
+                      <select
+                        className={inputClass}
+                        value={s.stopId}
+                        onChange={(e) => {
+                          const stop = stopOptions.find((o) => o.id === e.target.value);
+                          if (!stop) return;
+                          const next = [...value.stops];
+                          next[i] = { ...s, stopId: stop.id, name: stop.name, lat: stop.lat, lng: stop.lng };
+                          setStops(next);
+                        }}
+                      >
+                        {stopOptions
+                          .filter((o) => o.id === s.stopId || !usedStopIds.has(o.id))
+                          .map((o) => (
+                            <option key={o.id} value={o.id}>
+                              {o.name}
+                            </option>
+                          ))}
+                      </select>
+                    </Field>
+                  ) : (
+                    <Field label="Новая остановка" hint={`${s.lat.toFixed(5)}, ${s.lng.toFixed(5)} · будет создана при сохранении`}>
+                      <input
+                        className={inputClass}
+                        value={s.name}
+                        onChange={(e) => {
+                          const next = [...value.stops];
+                          next[i] = { ...s, name: e.target.value };
+                          setStops(next);
+                        }}
+                      />
+                    </Field>
+                  )}
                 </div>
+
                 <div className="w-32">
                   <Field label="Через, мин">
                     <input
@@ -207,11 +462,12 @@ export function RouteEditor({
                       onChange={(e) => {
                         const next = [...value.stops];
                         next[i] = { ...s, offsetMin: Number(e.target.value) };
-                        set("stops", next);
+                        setValue((prev) => ({ ...prev, stops: next }));
                       }}
                     />
                   </Field>
                 </div>
+
                 <div className="flex gap-1 pb-0.5">
                   <Button variant="ghost" className="min-h-9 px-2" onClick={() => moveStop(i, -1)} aria-label="Выше">
                     ↑
@@ -223,7 +479,7 @@ export function RouteEditor({
                     variant="ghost"
                     className="min-h-9 px-2 text-danger"
                     aria-label="Убрать остановку"
-                    onClick={() => set("stops", value.stops.filter((_, idx) => idx !== i))}
+                    onClick={() => setStops(value.stops.filter((_, idx) => idx !== i))}
                   >
                     <IconMinus className="size-4" />
                   </Button>
@@ -237,6 +493,7 @@ export function RouteEditor({
         </p>
       </Card>
 
+      {/* ------------------------------------------------------------ schedule */}
       <Card>
         <SectionTitle>Расписание отправлений</SectionTitle>
 
@@ -244,24 +501,22 @@ export function RouteEditor({
           {value.departures.length === 0 ? (
             <span className="text-sm text-muted-foreground">Отправления не заданы</span>
           ) : (
-            [...value.departures]
-              .sort()
-              .map((t) => (
-                <span
-                  key={t}
-                  className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-border bg-muted px-3 text-sm font-semibold tabular-nums"
+            [...value.departures].sort().map((t) => (
+              <span
+                key={t}
+                className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-border bg-muted px-3 text-sm font-semibold tabular-nums"
+              >
+                {t}
+                <button
+                  type="button"
+                  aria-label={`Убрать отправление ${t}`}
+                  onClick={() => set("departures", value.departures.filter((d) => d !== t))}
+                  className="cursor-pointer text-muted-foreground hover:text-danger"
                 >
-                  {t}
-                  <button
-                    type="button"
-                    aria-label={`Убрать отправление ${t}`}
-                    onClick={() => set("departures", value.departures.filter((d) => d !== t))}
-                    className="cursor-pointer text-muted-foreground hover:text-danger"
-                  >
-                    ×
-                  </button>
-                </span>
-              ))
+                  ×
+                </button>
+              </span>
+            ))
           )}
         </div>
 
@@ -313,6 +568,71 @@ export function RouteEditor({
         </div>
       </Card>
 
+      {/* ------------------------------------------------------------ versions */}
+      {value.id ? (
+        <Card>
+          <SectionTitle>Версии маршрута</SectionTitle>
+          <div className="mb-4 max-w-md">
+            <Field
+              label="Что меняете"
+              hint="Сохранится вместе с новой версией. Новая версия создаётся только при изменении остановок или времени."
+            >
+              <input
+                className={inputClass}
+                value={versionNote}
+                onChange={(e) => setVersionNote(e.target.value)}
+                placeholder="Например, добавлена остановка «Микрорайон 21»"
+              />
+            </Field>
+          </div>
+
+          {versions.length === 0 ? (
+            <p className="text-sm text-muted-foreground">История пока пуста.</p>
+          ) : (
+            <ol className="flex flex-col gap-2">
+              {versions.map((v) => (
+                <li
+                  key={v.id}
+                  className={cx(
+                    "rounded-lg border p-3 text-sm",
+                    v.isCurrent ? "border-primary bg-primary-soft/30" : "border-border",
+                  )}
+                >
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <span className="font-semibold">Версия {v.version}</span>
+                    {v.isCurrent ? (
+                      <span className="rounded-full bg-primary px-2 py-0.5 text-xs font-medium text-on-primary">
+                        действует
+                      </span>
+                    ) : null}
+                    <span className="text-muted-foreground">{formatWhen(v.createdAt)}</span>
+                    {v.createdByName ? <span className="text-muted-foreground">· {v.createdByName}</span> : null}
+                  </div>
+
+                  {v.note ? <p className="mt-1">{v.note}</p> : null}
+
+                  <p className="mt-1 flex flex-wrap items-center gap-x-3 text-xs text-muted-foreground tabular-nums">
+                    <span>остановок {v.stopCount}</span>
+                    <span>рейсов {v.tripCount}</span>
+                    {v.completedTripCount > 0 ? <span>завершено {v.completedTripCount}</span> : null}
+                    {v.pathSource === "road" && v.pathDistanceM ? <span>{formatKm(v.pathDistanceM)} по дорогам</span> : null}
+                  </p>
+
+                  {v.stopNames.length ? (
+                    <p className="mt-1 text-xs text-muted-foreground">{v.stopNames.join(" → ")}</p>
+                  ) : null}
+                </li>
+              ))}
+            </ol>
+          )}
+
+          <p className="mt-3 text-xs text-muted-foreground">
+            Старые версии не удаляются: завершённые рейсы остаются привязанными к той форме маршрута, по которой
+            фактически ехали, поэтому история загрузки по остановкам не искажается.
+          </p>
+        </Card>
+      ) : null}
+
       {result?.error ? (
         <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-red-800">
           {result.error}
@@ -335,7 +655,8 @@ export function RouteEditor({
 
       {value.id ? (
         <p className="text-xs text-muted-foreground">
-          После сохранения пассажиры и водители этого маршрута получат уведомление об изменении.
+          При изменении остановок или времени пассажиры и водители этого маршрута получат уведомление, а
+          запланированные рейсы перейдут на новую версию.
         </p>
       ) : null}
     </div>

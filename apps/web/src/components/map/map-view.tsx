@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo } from "react";
 import L from "leaflet";
-import { Circle, CircleMarker, MapContainer, Marker, Polyline, Popup, TileLayer, useMap } from "react-leaflet";
+import { Circle, CircleMarker, MapContainer, Marker, Polyline, Popup, TileLayer, useMap, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
 export interface MapStop {
@@ -13,6 +13,10 @@ export interface MapStop {
   /** optional caption under the name, e.g. planned time or load */
   note?: string;
   highlight?: boolean;
+  /** position in a route: drawn as a numbered pin instead of a dot */
+  order?: number;
+  /** a stop that is available but not part of the route yet */
+  muted?: boolean;
 }
 
 export interface MapLine {
@@ -59,6 +63,10 @@ export interface MapViewProps {
   zoom?: number;
   /** keep the current view when data updates */
   autoFit?: boolean;
+  /** called when the map itself is clicked, for placing a new point */
+  onMapClick?: (lat: number, lng: number) => void;
+  /** called when a stop marker is clicked */
+  onStopClick?: (stopId: string) => void;
 }
 
 const KHUJAND: [number, number] = [40.2833, 69.6333];
@@ -76,6 +84,23 @@ function vehicleIcon(v: MapVehicle): L.DivIcon {
         <circle cx="8" cy="19" r="1.4"/><circle cx="16" cy="19" r="1.4"/>
       </svg></div>`,
   });
+}
+
+function orderedIcon(stop: MapStop, color: string): L.DivIcon {
+  return L.divIcon({
+    className: "",
+    iconSize: [26, 26],
+    iconAnchor: [13, 13],
+    html: `<div style="display:flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:9999px;background:${color};border:2px solid #fff;box-shadow:0 1px 3px rgba(15,23,42,.4);color:#fff;font:600 12px/1 system-ui,sans-serif">${stop.order}</div>`,
+  });
+}
+
+/** Turns clicks on empty map space into a callback. */
+function ClickCatcher({ onMapClick }: { onMapClick: (lat: number, lng: number) => void }) {
+  useMapEvents({
+    click: (event) => onMapClick(event.latlng.lat, event.latlng.lng),
+  });
+  return null;
 }
 
 function FitBounds({
@@ -123,6 +148,8 @@ export default function MapView({
   center,
   zoom = 13,
   autoFit = true,
+  onMapClick,
+  onStopClick,
 }: MapViewProps) {
   return (
     <MapContainer
@@ -167,24 +194,44 @@ export default function MapView({
           </Popup>
         </Circle>
       ))}
-      {stops.map((s) => (
-        <CircleMarker
-          key={s.id}
-          center={[s.lat, s.lng]}
-          radius={s.highlight ? 9 : 6}
-          pathOptions={{
-            color: s.highlight ? "#ea580c" : "#1e3a8a",
-            fillColor: s.highlight ? "#ea580c" : "#ffffff",
-            fillOpacity: 1,
-            weight: 3,
-          }}
-        >
-          <Popup>
-            <span className="font-medium">{s.name}</span>
-            {s.note ? <div className="text-xs text-slate-600">{s.note}</div> : null}
-          </Popup>
-        </CircleMarker>
-      ))}
+      {stops.map((s) =>
+        s.order !== undefined ? (
+          <Marker
+            key={s.id}
+            position={[s.lat, s.lng]}
+            icon={orderedIcon(s, lines[0]?.color ?? "#2563eb")}
+            zIndexOffset={300}
+            bubblingMouseEvents={false}
+            eventHandlers={onStopClick ? { click: () => onStopClick(s.id) } : undefined}
+          >
+            <Popup>
+              <span className="font-medium">
+                {s.order}. {s.name}
+              </span>
+              {s.note ? <div className="text-xs text-slate-600">{s.note}</div> : null}
+            </Popup>
+          </Marker>
+        ) : (
+          <CircleMarker
+            key={s.id}
+            center={[s.lat, s.lng]}
+            radius={s.highlight ? 9 : s.muted ? 5 : 6}
+            bubblingMouseEvents={false}
+            eventHandlers={onStopClick ? { click: () => onStopClick(s.id) } : undefined}
+            pathOptions={{
+              color: s.highlight ? "#ea580c" : s.muted ? "#94a3b8" : "#1e3a8a",
+              fillColor: s.highlight ? "#ea580c" : "#ffffff",
+              fillOpacity: s.muted ? 0.9 : 1,
+              weight: s.muted ? 2 : 3,
+            }}
+          >
+            <Popup>
+              <span className="font-medium">{s.name}</span>
+              {s.note ? <div className="text-xs text-slate-600">{s.note}</div> : null}
+            </Popup>
+          </CircleMarker>
+        ),
+      )}
       {vehicles.map((v) => (
         <Marker key={v.id} position={[v.lat, v.lng]} icon={vehicleIcon(v)} zIndexOffset={500}>
           <Popup>
@@ -202,6 +249,7 @@ export default function MapView({
           <Popup>Моё местоположение</Popup>
         </CircleMarker>
       ) : null}
+      {onMapClick ? <ClickCatcher onMapClick={onMapClick} /> : null}
       <FitBounds stops={stops} me={me} vehicles={vehicles} areas={areas} enabled={autoFit} />
     </MapContainer>
   );

@@ -20,7 +20,7 @@ import {
 import { db, schema } from "./db";
 import { notify } from "./push";
 
-const { trips, routes, routeStops, stops, vehicles, vehiclePositions, passengerTrips, tripStopEvents, tripStopAlerts, settings } =
+const { trips, routes, routeVersions, routeStops, stops, vehicles, vehiclePositions, passengerTrips, tripStopEvents, tripStopAlerts, settings } =
   schema;
 
 export async function getDeviationSettings(): Promise<DeviationSettings> {
@@ -44,9 +44,9 @@ export async function saveDeviationSettings(next: DeviationSettings): Promise<vo
  * Uses the stored road geometry when it exists, otherwise straight lines
  * between stops, so live estimates work even before geometry is built.
  */
-async function routePath(routeId: string): Promise<RoutePath | null> {
-  const [routeRow, stopRows] = await Promise.all([
-    db.select({ path: routes.path }).from(routes).where(eq(routes.id, routeId)).limit(1),
+async function routePath(versionId: string): Promise<RoutePath | null> {
+  const [versionRow, stopRows] = await Promise.all([
+    db.select({ path: routeVersions.path }).from(routeVersions).where(eq(routeVersions.id, versionId)).limit(1),
     db
       .select({
         stopId: routeStops.stopId,
@@ -58,13 +58,13 @@ async function routePath(routeId: string): Promise<RoutePath | null> {
       })
       .from(routeStops)
       .innerJoin(stops, eq(stops.id, routeStops.stopId))
-      .where(eq(routeStops.routeId, routeId))
+      .where(eq(routeStops.versionId, versionId))
       .orderBy(asc(routeStops.seq)),
   ]);
 
   if (stopRows.length < 2) return null;
 
-  const stored = routeRow[0]?.path;
+  const stored = versionRow[0]?.path;
   const hasRoadGeometry = Array.isArray(stored) && stored.length >= 2;
   const points = hasRoadGeometry
     ? stored.map(([lat, lng]) => ({ lat, lng }))
@@ -111,15 +111,23 @@ export async function recordPosition(input: RecordPositionInput): Promise<Record
   if (Math.abs(input.lat) > 90 || Math.abs(input.lng) > 180) return { ok: false, error: "Координаты вне диапазона" };
 
   const tripRows = await db
-    .select({ id: trips.id, routeId: trips.routeId, vehicleId: trips.vehicleId, driverId: trips.driverId, status: trips.status })
+    .select({
+      id: trips.id,
+      routeId: trips.routeId,
+      versionId: sql<string>`coalesce(${trips.routeVersionId}, ${routes.currentVersionId})`,
+      vehicleId: trips.vehicleId,
+      driverId: trips.driverId,
+      status: trips.status,
+    })
     .from(trips)
+    .innerJoin(routes, eq(routes.id, trips.routeId))
     .where(eq(trips.id, input.tripId))
     .limit(1);
   const trip = tripRows[0];
   if (!trip || trip.driverId !== input.driverId) return { ok: false, error: "Рейс не найден" };
   if (trip.status !== "in_progress") return { ok: false, error: "Рейс не в пути" };
 
-  const path = await routePath(trip.routeId);
+  const path = trip.versionId ? await routePath(trip.versionId) : null;
   const projection = path ? projectOnPath({ lat: input.lat, lng: input.lng }, path) : null;
   const recordedAt = input.recordedAt ?? new Date();
 
@@ -309,10 +317,11 @@ export async function getTripLive(tripId: string, now = new Date()): Promise<Tri
       speedKph: vehiclePositions.speedKph,
       offRouteM: vehiclePositions.offRouteM,
       recordedAt: vehiclePositions.recordedAt,
-      routeId: trips.routeId,
+      versionId: sql<string>`coalesce(${trips.routeVersionId}, ${routes.currentVersionId})`,
     })
     .from(vehiclePositions)
     .innerJoin(trips, eq(trips.id, vehiclePositions.tripId))
+    .innerJoin(routes, eq(routes.id, trips.routeId))
     .where(eq(vehiclePositions.tripId, tripId))
     .orderBy(desc(vehiclePositions.recordedAt))
     .limit(1);
@@ -323,7 +332,7 @@ export async function getTripLive(tripId: string, now = new Date()): Promise<Tri
     return { position: last ? { ...last, offRouteM: last.offRouteM } : null, tracking, etaByStop: {} };
   }
 
-  const path = await routePath(last.routeId);
+  const path = last.versionId ? await routePath(last.versionId) : null;
   if (!path) {
     return {
       position: { lat: last.lat, lng: last.lng, recordedAt: last.recordedAt, speedKph: last.speedKph, offRouteM: last.offRouteM },

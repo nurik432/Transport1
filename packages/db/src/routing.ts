@@ -111,21 +111,32 @@ export async function fetchRoadPath(stops: readonly LatLng[]): Promise<RoadPath>
 export interface GeometryResult {
   routeId: string;
   routeName: string;
+  versionId: string;
+  version: number;
   source: PathSource;
   points: number;
   distanceM: number;
   error?: string;
 }
 
-/** Build and store the geometry of one route. */
-export async function rebuildRouteGeometry(db: Db, routeId: string): Promise<GeometryResult | null> {
-  const routeRows = await db
-    .select({ id: schema.routes.id, name: schema.routes.name })
-    .from(schema.routes)
-    .where(eq(schema.routes.id, routeId))
+/**
+ * Build and store the geometry of one route version.
+ * Geometry belongs to a version because every version has its own shape.
+ */
+export async function rebuildVersionGeometry(db: Db, versionId: string): Promise<GeometryResult | null> {
+  const versionRows = await db
+    .select({
+      versionId: schema.routeVersions.id,
+      version: schema.routeVersions.version,
+      routeId: schema.routes.id,
+      routeName: schema.routes.name,
+    })
+    .from(schema.routeVersions)
+    .innerJoin(schema.routes, eq(schema.routes.id, schema.routeVersions.routeId))
+    .where(eq(schema.routeVersions.id, versionId))
     .limit(1);
-  const route = routeRows[0];
-  if (!route) return null;
+  const version = versionRows[0];
+  if (!version) return null;
 
   const stopRows = await db
     .select({
@@ -136,35 +147,35 @@ export async function rebuildRouteGeometry(db: Db, routeId: string): Promise<Geo
     })
     .from(schema.routeStops)
     .innerJoin(schema.stops, eq(schema.stops.id, schema.routeStops.stopId))
-    .where(eq(schema.routeStops.routeId, routeId))
+    .where(eq(schema.routeStops.versionId, versionId))
     .orderBy(asc(schema.routeStops.seq));
+
+  const base = {
+    routeId: version.routeId,
+    routeName: version.routeName,
+    versionId: version.versionId,
+    version: version.version,
+  };
 
   if (stopRows.length < 2) {
     await db
-      .update(schema.routes)
+      .update(schema.routeVersions)
       .set({ path: null, pathDistanceM: null, pathSource: null, pathUpdatedAt: new Date() })
-      .where(eq(schema.routes.id, routeId));
-    return {
-      routeId,
-      routeName: route.name,
-      source: "straight",
-      points: 0,
-      distanceM: 0,
-      error: "Меньше двух остановок",
-    };
+      .where(eq(schema.routeVersions.id, versionId));
+    return { ...base, source: "straight", points: 0, distanceM: 0, error: "Меньше двух остановок" };
   }
 
   const path = await fetchRoadPath(stopRows.map((s) => ({ lat: s.lat, lng: s.lng })));
 
   await db
-    .update(schema.routes)
+    .update(schema.routeVersions)
     .set({
       path: path.points,
       pathDistanceM: path.totalDistanceM,
       pathSource: path.source,
       pathUpdatedAt: new Date(),
     })
-    .where(eq(schema.routes.id, routeId));
+    .where(eq(schema.routeVersions.id, versionId));
 
   // Store each stop's distance along the road for the arrival estimates.
   for (const [index, stop] of stopRows.entries()) {
@@ -175,8 +186,7 @@ export async function rebuildRouteGeometry(db: Db, routeId: string): Promise<Geo
   }
 
   return {
-    routeId,
-    routeName: route.name,
+    ...base,
     source: path.source,
     points: path.points.length,
     distanceM: path.totalDistanceM,
@@ -184,12 +194,29 @@ export async function rebuildRouteGeometry(db: Db, routeId: string): Promise<Geo
   };
 }
 
-/** Rebuild geometry for every route, one at a time to stay within fair use. */
+/** Build geometry for the version the route currently serves. */
+export async function rebuildRouteGeometry(db: Db, routeId: string): Promise<GeometryResult | null> {
+  const rows = await db
+    .select({ currentVersionId: schema.routes.currentVersionId })
+    .from(schema.routes)
+    .where(eq(schema.routes.id, routeId))
+    .limit(1);
+  const versionId = rows[0]?.currentVersionId;
+  if (!versionId) return null;
+  return rebuildVersionGeometry(db, versionId);
+}
+
+/** Rebuild geometry for every route's current version, one at a time. */
 export async function rebuildAllRouteGeometry(db: Db): Promise<GeometryResult[]> {
-  const routes = await db.select({ id: schema.routes.id }).from(schema.routes).orderBy(asc(schema.routes.name));
+  const routes = await db
+    .select({ currentVersionId: schema.routes.currentVersionId })
+    .from(schema.routes)
+    .orderBy(asc(schema.routes.name));
+
   const results: GeometryResult[] = [];
   for (const route of routes) {
-    const result = await rebuildRouteGeometry(db, route.id);
+    if (!route.currentVersionId) continue;
+    const result = await rebuildVersionGeometry(db, route.currentVersionId);
     if (result) results.push(result);
   }
   return results;

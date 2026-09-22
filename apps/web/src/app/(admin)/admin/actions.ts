@@ -8,7 +8,7 @@ import { db, schema } from "@/lib/db";
 import { hashPassword, requireRole } from "@/lib/auth";
 import { saveThresholds } from "@/lib/queries";
 import { notify } from "@/lib/push";
-import { rebuildAllRouteGeometry, rebuildRouteGeometry } from "@transport/db/routing";
+import { rebuildAllRouteGeometry, rebuildVersionGeometry } from "@transport/db/routing";
 import { saveDeviationSettings } from "@/lib/live";
 
 export interface ActionResult {
@@ -84,7 +84,11 @@ export async function deleteStop(id: string): Promise<ActionResult> {
 // ---------------------------------------------------------------- routes
 
 const routeStopSchema = z.object({
-  stopId: z.string().uuid(),
+  /** null for a point placed on the map: the stop is created on save */
+  stopId: z.string().uuid().nullable().optional(),
+  name: z.string().trim().optional(),
+  lat: z.coerce.number().min(-90).max(90).optional(),
+  lng: z.coerce.number().min(-180).max(180).optional(),
   offsetMin: z.coerce.number().int().min(0).max(600),
 });
 
@@ -102,15 +106,86 @@ const routeSchema = z.object({
   stops: z.array(routeStopSchema).min(2, "В маршруте должно быть минимум две остановки"),
   departures: z.array(z.string().regex(/^\d{2}:\d{2}$/, "Время в формате ЧЧ:ММ")).default([]),
   daysOfWeek: z.array(z.coerce.number().int().min(1).max(7)).default([1, 2, 3, 4, 5]),
+  /** what changed, stored with the new version */
+  versionNote: z.string().trim().max(200).optional(),
 });
+
+/** Create stops for points placed on the map, and return the final stop ids. */
+async function resolveRouteStops(
+  stops: z.infer<typeof routeSchema>["stops"],
+): Promise<{ stopId: string; offsetMin: number }[] | ActionResult> {
+  const resolved: { stopId: string; offsetMin: number }[] = [];
+
+  for (const stop of stops) {
+    if (stop.stopId) {
+      resolved.push({ stopId: stop.stopId, offsetMin: stop.offsetMin });
+      continue;
+    }
+    if (stop.lat === undefined || stop.lng === undefined) {
+      return fail("У новой точки не указаны координаты");
+    }
+    const created = await db
+      .insert(schema.stops)
+      .values({
+        name: stop.name?.trim() || "Новая остановка",
+        lat: stop.lat,
+        lng: stop.lng,
+        status: "active",
+      })
+      .returning({ id: schema.stops.id });
+    resolved.push({ stopId: created[0]!.id, offsetMin: stop.offsetMin });
+  }
+
+  const unique = new Set(resolved.map((r) => r.stopId));
+  if (unique.size !== resolved.length) return fail("Остановка не может повторяться в маршруте");
+  return resolved;
+}
+
+/**
+ * Create a new version of a route's shape and make it current.
+ * Planned trips move onto the new shape; trips that already ran keep the one
+ * they followed, so the per-stop history stays truthful.
+ */
+async function createRouteVersion(
+  routeId: string,
+  stops: { stopId: string; offsetMin: number }[],
+  adminId: string,
+  note: string | undefined,
+): Promise<{ versionId: string; version: number }> {
+  const previous = await db
+    .select({ version: schema.routeVersions.version })
+    .from(schema.routeVersions)
+    .where(eq(schema.routeVersions.routeId, routeId))
+    .orderBy(desc(schema.routeVersions.version))
+    .limit(1);
+  const version = (previous[0]?.version ?? 0) + 1;
+
+  const inserted = await db
+    .insert(schema.routeVersions)
+    .values({ routeId, version, note: note || null, createdBy: adminId })
+    .returning({ id: schema.routeVersions.id });
+  const versionId = inserted[0]!.id;
+
+  await db
+    .insert(schema.routeStops)
+    .values(stops.map((s, i) => ({ routeId, versionId, stopId: s.stopId, seq: i + 1, offsetMin: s.offsetMin })));
+
+  await db.update(schema.routes).set({ currentVersionId: versionId }).where(eq(schema.routes.id, routeId));
+
+  // Trips that have not run yet will follow the new shape.
+  const today = new Date().toISOString().slice(0, 10);
+  await db
+    .update(schema.trips)
+    .set({ routeVersionId: versionId })
+    .where(and(eq(schema.trips.routeId, routeId), eq(schema.trips.status, "planned"), gte(schema.trips.date, today)));
+
+  return { versionId, version };
+}
 
 export async function saveRoute(input: unknown): Promise<ActionResult> {
   const admin = await requireRole("admin");
   const data = parse(routeSchema, input);
   if (isError(data)) return fail(data.__error);
-
-  const uniqueStops = new Set(data.stops.map((s) => s.stopId));
-  if (uniqueStops.size !== data.stops.length) return fail("Остановка не может повторяться в маршруте");
 
   const values = {
     name: data.name,
@@ -124,7 +199,16 @@ export async function saveRoute(input: unknown): Promise<ActionResult> {
 
   let routeId = data.id;
   let created = false;
+  let currentVersionId: string | null = null;
+
   if (routeId) {
+    const existing = await db
+      .select({ currentVersionId: schema.routes.currentVersionId })
+      .from(schema.routes)
+      .where(eq(schema.routes.id, routeId))
+      .limit(1);
+    if (!existing[0]) return fail("Маршрут не найден");
+    currentVersionId = existing[0].currentVersionId;
     await db.update(schema.routes).set(values).where(eq(schema.routes.id, routeId));
   } else {
     const rows = await db.insert(schema.routes).values(values).returning({ id: schema.routes.id });
@@ -132,11 +216,26 @@ export async function saveRoute(input: unknown): Promise<ActionResult> {
     created = true;
   }
 
-  // Replace stops and schedules: simplest correct approach for the MVP.
-  await db.delete(schema.routeStops).where(eq(schema.routeStops.routeId, routeId));
-  await db
-    .insert(schema.routeStops)
-    .values(data.stops.map((s, i) => ({ routeId: routeId!, stopId: s.stopId, seq: i + 1, offsetMin: s.offsetMin })));
+  const resolved = await resolveRouteStops(data.stops);
+  if ("ok" in resolved) return resolved;
+
+  // Compare with the current shape: a metadata-only edit must not create a version.
+  const currentStops = currentVersionId
+    ? await db
+        .select({ stopId: schema.routeStops.stopId, offsetMin: schema.routeStops.offsetMin })
+        .from(schema.routeStops)
+        .where(eq(schema.routeStops.versionId, currentVersionId))
+        .orderBy(asc(schema.routeStops.seq))
+    : [];
+  const shapeChanged =
+    !currentVersionId ||
+    currentStops.length !== resolved.length ||
+    currentStops.some((s, i) => s.stopId !== resolved[i]!.stopId || s.offsetMin !== resolved[i]!.offsetMin);
+
+  let newVersion: { versionId: string; version: number } | null = null;
+  if (shapeChanged) {
+    newVersion = await createRouteVersion(routeId, resolved, admin.id, data.versionNote);
+  }
 
   const existingSchedules = await db
     .select()
@@ -165,13 +264,18 @@ export async function saveRoute(input: unknown): Promise<ActionResult> {
     .set({ daysOfWeek: data.daysOfWeek })
     .where(eq(schema.routeSchedules.routeId, routeId));
 
-  // The shape changed, so the stored road geometry has to be rebuilt.
-  const geometry = await rebuildRouteGeometry(db, routeId);
+  // Geometry belongs to the shape, so it is only rebuilt for a new version.
+  const geometry = newVersion ? await rebuildVersionGeometry(db, newVersion.versionId) : null;
 
-  if (!created) await notifyRouteAudience(routeId, admin.id, data.name);
+  if (!created && shapeChanged) await notifyRouteAudience(routeId, admin.id, data.name);
 
   refreshAdmin("/admin/routes", `/admin/routes/${routeId}`, "/app", "/app/routes", "/admin/live");
-  const base = created ? "Маршрут создан" : "Маршрут обновлён";
+
+  if (!shapeChanged) {
+    return { ok: true, id: routeId, message: "Маршрут обновлён, форма маршрута не изменилась" };
+  }
+
+  const base = created ? "Маршрут создан" : `Маршрут обновлён, создана версия ${newVersion!.version}`;
   const note =
     geometry?.source === "road"
       ? `, путь по дорогам ${(geometry.distanceM / 1000).toFixed(1).replace(".", ",")} км`
@@ -624,7 +728,6 @@ const proposalSchema = z.object({
  * reviews it and switches it to active.
  */
 export async function createRouteDraft(input: unknown): Promise<ActionResult> {
-  await requireRole("admin");
   const data = parse(proposalSchema, input);
   if (isError(data)) return fail(data.__error);
 
@@ -641,6 +744,7 @@ export async function createRouteDraft(input: unknown): Promise<ActionResult> {
     resolved.push({ stopId: created[0]!.id, offsetMin: stop.offsetMin });
   }
 
+  const admin = await requireRole("admin");
   const route = await db
     .insert(schema.routes)
     .values({
@@ -653,9 +757,7 @@ export async function createRouteDraft(input: unknown): Promise<ActionResult> {
     .returning({ id: schema.routes.id });
   const routeId = route[0]!.id;
 
-  await db
-    .insert(schema.routeStops)
-    .values(resolved.map((s, i) => ({ routeId, stopId: s.stopId, seq: i + 1, offsetMin: s.offsetMin })));
+  const version = await createRouteVersion(routeId, resolved, admin.id, "Создан из предложения системы");
 
   if (data.departures.length) {
     await db
@@ -663,7 +765,7 @@ export async function createRouteDraft(input: unknown): Promise<ActionResult> {
       .values(data.departures.map((t) => ({ routeId, departureTime: `${t}:00`, daysOfWeek: data.daysOfWeek })));
   }
 
-  await rebuildRouteGeometry(db, routeId);
+  await rebuildVersionGeometry(db, version.versionId);
 
   refreshAdmin("/admin/routes", "/admin/stops", "/admin/planning");
   return { ok: true, id: routeId, message: "Черновик маршрута создан. Проверьте и активируйте его." };
