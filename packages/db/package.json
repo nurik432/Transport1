@@ -13,6 +13,7 @@
   "scripts": {
     "generate": "drizzle-kit generate",
     "migrate": "tsx src/migrate.ts",
+    "bundle:migrate": "esbuild src/migrate.ts --bundle --platform=node --format=esm --target=node24 --outfile=dist/migrate.mjs --banner:js=\"import { createRequire } from 'node:module'; const require = createRequire(import.meta.url);\"",
     "seed": "tsx src/seed.ts",
     "reset": "tsx src/reset.ts",
     "typecheck": "tsc --noEmit",
@@ -29,6 +30,7 @@
   "devDependencies": {
     "@types/node": "^24.0.0",
     "drizzle-kit": "^0.31.10",
+    "esbuild": "^0.28.2",
     "tsx": "^4.20.0",
     "typescript": "^5.9.0"
   }

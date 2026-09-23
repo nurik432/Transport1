@@ -32,7 +32,7 @@ pnpm docker:seed    # один раз — заполнить тестовыми 
 Приложение — на http://localhost:3000, БД проброшена на хост-порт **5433**, как и при
 локальном запуске. `docker:up` можно вызывать повторно: миграции применяются автоматически
 и безопасны при повторном запуске, а `docker:seed`/`docker:reset` — вручную (сид не идемпотентен).
-Переменные `ROUTING_URL`, `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`
+Переменные `ROUTING_URL`, `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`
 опциональны — заданы в `.env` (см. `.env.example`), `docker-compose.yml` подхватывает их
 через `${VAR}`.
 
@@ -44,6 +44,11 @@ pnpm docker:seed    # один раз — заполнить тестовыми 
 | `pnpm docker:migrate` | Повторно применить миграции |
 | `pnpm docker:seed` | Заполнить тестовыми данными |
 | `pnpm docker:reset` | Очистить базу |
+
+### Деплой
+
+Продакшен — Dokku, автодеплой из GitHub при пуше в `main`. Настройка сервера и секретов —
+в [docs/deploy-dokku.md](docs/deploy-dokku.md).
 
 ### Демо-доступы
 

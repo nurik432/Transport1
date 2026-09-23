@@ -1,0 +1,39 @@
+# Проверки и деплой на Dokku при каждом пуше в main.
+# Нужен секрет репозитория DOKKU_SSH_PRIVATE_KEY (см. docs/deploy-dokku.md).
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm test
+
+  deploy:
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dokku/github-action@master
+        with:
+          git_remote_url: ssh://dokku@89.125.120.7:22/transport
+          ssh_private_key: ${{ secrets.DOKKU_SSH_PRIVATE_KEY }}
+          branch: main
