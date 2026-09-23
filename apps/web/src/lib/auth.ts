@@ -51,7 +51,10 @@ export const getSessionUser = cache(async (): Promise<SessionUser | null> => {
 /** Require any signed-in user. Redirects to /login otherwise. */
 export async function requireUser(): Promise<SessionUser> {
   const user = await getSessionUser();
-  if (!user) redirect("/login");
+  // proxy.ts only checks that the cookie exists, so a stale/invalid one still
+  // gets this far. Route through /logout (a Route Handler) to clear it,
+  // otherwise the cookie survives and proxy.ts bounces /login back to /.
+  if (!user) redirect("/logout");
   return user;
 }
 

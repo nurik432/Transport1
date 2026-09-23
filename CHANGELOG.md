@@ -147,3 +147,10 @@ Mechanical record only - see git history for diffs and rationale._
 - 2026-09-23 06:22  Edit  C:/Users/fid926309449/transport1/.claude/worktrees/docker-project-setup-adf799/README.md
 - 2026-09-23 06:22  Edit  C:/Users/fid926309449/transport1/.claude/worktrees/docker-project-setup-adf799/CLAUDE.md
 - 2026-09-23 06:49  Write  C:/Users/FID926~1/AppData/Local/Temp/claude/C--Users-fid926309449-transport1--claude-worktrees-docker-project-setup-adf799/c890a0fa-9d57-4f5f-814e-9bfda61d8171/scratchpad/verify-override.yml
+- 2026-09-23 07:43  Edit  C:/Users/fid926309449/transport1/.claude/worktrees/docker-project-setup-adf799/apps/web/src/app/logout/route.ts
+- 2026-09-23 07:44  Edit  C:/Users/fid926309449/transport1/.claude/worktrees/docker-project-setup-adf799/apps/web/src/lib/auth.ts
+- 2026-09-23 07:44  Edit  C:/Users/fid926309449/transport1/.claude/worktrees/docker-project-setup-adf799/apps/web/src/app/page.tsx
+- 2026-09-23 07:47  Write  C:/Users/FID926~1/AppData/Local/Temp/claude/C--Users-fid926309449-transport1--claude-worktrees-docker-project-setup-adf799/c890a0fa-9d57-4f5f-814e-9bfda61d8171/scratchpad/verify-override.yml
+- 2026-09-23 07:47  Write  C:/Users/FID926~1/AppData/Local/Temp/claude/C--Users-fid926309449-transport1--claude-worktrees-docker-project-setup-adf799/c890a0fa-9d57-4f5f-814e-9bfda61d8171/scratchpad/verify-override.yml
+- 2026-09-23 07:49  Write  C:/Users/FID926~1/AppData/Local/Temp/claude/C--Users-fid926309449-transport1--claude-worktrees-docker-project-setup-adf799/c890a0fa-9d57-4f5f-814e-9bfda61d8171/scratchpad/verify-override.yml
+- 2026-09-23 07:50  Write  C:/Users/FID926~1/AppData/Local/Temp/claude/C--Users-fid926309449-transport1--claude-worktrees-docker-project-setup-adf799/c890a0fa-9d57-4f5f-814e-9bfda61d8171/scratchpad/verify-override.yml
