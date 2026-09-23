@@ -14,6 +14,12 @@
     "db:migrate": "pnpm --filter @transport/db migrate",
     "db:seed": "pnpm --filter @transport/db seed",
     "db:reset": "pnpm --filter @transport/db reset",
-    "db:geometry": "pnpm --filter @transport/db geometry"
+    "db:geometry": "pnpm --filter @transport/db geometry",
+    "docker:up": "docker compose up -d --build",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f web",
+    "docker:migrate": "docker compose run --rm migrate",
+    "docker:seed": "docker compose run --rm tools pnpm --filter @transport/db seed",
+    "docker:reset": "docker compose run --rm tools pnpm --filter @transport/db reset"
   }
 }
