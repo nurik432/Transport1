@@ -15,5 +15,56 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  # Applies Drizzle migrations, then exits. Runs automatically before `web`
+  # starts; safe to re-run (docker compose run --rm migrate).
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      target: repo
+    command: pnpm --filter @transport/db migrate
+    environment:
+      DATABASE_URL: postgres://transport:transport@db:5432/transport
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: transport1-web
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgres://transport:transport@db:5432/transport
+      SESSION_SECRET: ${SESSION_SECRET:-change-me-to-a-long-random-string}
+      ROUTING_URL: ${ROUTING_URL:-}
+      NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${NEXT_PUBLIC_VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-}
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  # One-off runner for db scripts that shouldn't run on every `up`, e.g.:
+  #   docker compose run --rm tools pnpm --filter @transport/db seed
+  #   docker compose run --rm tools pnpm --filter @transport/db reset
+  tools:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      target: repo
+    profiles: ["tools"]
+    environment:
+      DATABASE_URL: postgres://transport:transport@db:5432/transport
+      ROUTING_URL: ${ROUTING_URL:-}
+    depends_on:
+      db:
+        condition: service_healthy
+
 volumes:
   pgdata:

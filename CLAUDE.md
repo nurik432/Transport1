@@ -14,6 +14,7 @@
 - test: `pnpm test` (Vitest в packages/domain)
 - typecheck: `pnpm typecheck`; lint: `pnpm lint`
 - db: `pnpm db:up` (Postgres в Docker, порт **5433**), `db:migrate`, `db:seed`, `db:reset`
+- docker: `pnpm docker:up` — весь стек (БД + веб) в Docker, порт **3000**; миграции применяются автоматически, `docker:seed`/`docker:reset` — вручную
 
 ## Architecture
 - `apps/web` — Next.js 16 App Router. Зоны: `(passenger)` → `/app`, `(driver)` → `/driver`, `(admin)` → `/admin`, REST в `app/api/v1`.

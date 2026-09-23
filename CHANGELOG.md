@@ -138,3 +138,12 @@ Mechanical record only - see git history for diffs and rationale._
 - 2026-09-22 07:53  Write  C:/Users/fid926309449/transport1/apps/web/src/app/(admin)/admin/routes/[id]/page.tsx
 - 2026-09-22 07:53  Write  C:/Users/fid926309449/transport1/apps/web/src/app/(admin)/admin/routes/new/page.tsx
 - 2026-09-22 11:23  Write  C:/Users/FID926~1/AppData/Local/Temp/claude/patch_docs.py
+- 2026-09-23 06:21  Edit  C:/Users/fid926309449/transport1/.claude/worktrees/docker-project-setup-adf799/apps/web/next.config.ts
+- 2026-09-23 06:22  Write  C:/Users/fid926309449/transport1/.claude/worktrees/docker-project-setup-adf799/apps/web/Dockerfile
+- 2026-09-23 06:22  Write  C:/Users/fid926309449/transport1/.claude/worktrees/docker-project-setup-adf799/.dockerignore
+- 2026-09-23 06:22  Edit  C:/Users/fid926309449/transport1/.claude/worktrees/docker-project-setup-adf799/docker-compose.yml
+- 2026-09-23 06:22  Edit  C:/Users/fid926309449/transport1/.claude/worktrees/docker-project-setup-adf799/package.json
+- 2026-09-23 06:22  Edit  C:/Users/fid926309449/transport1/.claude/worktrees/docker-project-setup-adf799/.env.example
+- 2026-09-23 06:22  Edit  C:/Users/fid926309449/transport1/.claude/worktrees/docker-project-setup-adf799/README.md
+- 2026-09-23 06:22  Edit  C:/Users/fid926309449/transport1/.claude/worktrees/docker-project-setup-adf799/CLAUDE.md
+- 2026-09-23 06:49  Write  C:/Users/FID926~1/AppData/Local/Temp/claude/C--Users-fid926309449-transport1--claude-worktrees-docker-project-setup-adf799/c890a0fa-9d57-4f5f-814e-9bfda61d8171/scratchpad/verify-override.yml
