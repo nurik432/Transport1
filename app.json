@@ -1,0 +1,21 @@
+{
+  "name": "transport",
+  "scripts": {
+    "dokku": {
+      "predeploy": "node packages/db/dist/migrate.mjs"
+    }
+  },
+  "healthchecks": {
+    "web": [
+      {
+        "type": "startup",
+        "name": "login page",
+        "path": "/login",
+        "port": 3000,
+        "attempts": 5,
+        "wait": 3,
+        "timeout": 5
+      }
+    ]
+  }
+}

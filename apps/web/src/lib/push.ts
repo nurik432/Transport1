@@ -3,7 +3,10 @@ import webpush from "web-push";
 import { eq, inArray } from "drizzle-orm";
 import { db, schema } from "./db";
 
-export const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? "";
+// Read at runtime: NEXT_PUBLIC_* is inlined at build time, so in a Docker image
+// built without keys it would stay empty. The key reaches the client as a prop.
+export const VAPID_PUBLIC_KEY =
+  process.env.VAPID_PUBLIC_KEY || process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || "";
 
 let configured = false;
 
