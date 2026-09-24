@@ -168,3 +168,9 @@ export const IconExpand = (p: SVGProps<SVGSVGElement>) => (
     <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
   </Base>
 );
+
+export const IconClose = (p: SVGProps<SVGSVGElement>) => (
+  <Base {...p}>
+    <path d="M18 6 6 18M6 6l12 12" />
+  </Base>
+);

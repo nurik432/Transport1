@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import L from "leaflet";
 import { Circle, CircleMarker, MapContainer, Marker, Polyline, Popup, TileLayer, useMap, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
+import { cx } from "@/components/ui";
+import { IconClose, IconExpand, IconLocate } from "@/components/icons";
 
 export interface MapStop {
   id: string;
@@ -75,9 +77,27 @@ export interface MapViewProps {
   onUserMove?: () => void;
   /** change it to fit the stops again */
   fitKey?: string | number;
+  /** fit these points instead of the stops, e.g. a walking path */
+  fitPoints?: [number, number][];
+  /** where the "my location" button centres the map; defaults to `me`, null hides it */
+  locateTo?: { lat: number; lng: number } | null;
+  /** full-screen map: wheel zoom always on, the toggle closes it */
+  fullscreen?: boolean;
+  /** shows the expand (or, in full screen, close) button */
+  onToggleFullscreen?: () => void;
 }
 
 const KHUJAND: [number, number] = [40.2833, 69.6333];
+
+// Leaflet ends a zoom animation from a 250 ms timer that map.remove() doesn't
+// cancel; a map closed mid-zoom (full screen closed, card hidden) then throws
+// on the removed pane. Skip the tail when the map is already gone.
+type ZoomEnd = { _mapPane?: HTMLElement; _onZoomTransitionEnd: () => void };
+const leafletMap = L.Map.prototype as unknown as ZoomEnd;
+const zoomTransitionEnd = leafletMap._onZoomTransitionEnd;
+leafletMap._onZoomTransitionEnd = function (this: ZoomEnd) {
+  if (this._mapPane) zoomTransitionEnd.call(this);
+};
 
 function vehicleIcon(v: MapVehicle): L.DivIcon {
   const ring = v.alert ? "box-shadow:0 0 0 3px #dc2626" : "box-shadow:0 1px 4px rgba(15,23,42,.45)";
@@ -121,6 +141,33 @@ function Follow({ point }: { point: { lat: number; lng: number } }) {
   return null;
 }
 
+/**
+ * An embedded map must not steal page scrolling: wheel zoom turns on once the
+ * map is clicked and off again when the pointer leaves it.
+ */
+function WheelOnClick() {
+  const map = useMap();
+  useMapEvents({
+    click: () => map.scrollWheelZoom.enable(),
+    mouseout: () => map.scrollWheelZoom.disable(),
+  });
+  return null;
+}
+
+function MapButton({ label, onClick, children }: { label: string; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      className="flex size-11 cursor-pointer items-center justify-center rounded-lg border border-border bg-card text-foreground shadow-sm transition-colors hover:bg-muted"
+    >
+      {children}
+    </button>
+  );
+}
+
 function UserMove({ onUserMove }: { onUserMove: () => void }) {
   useMapEvents({ dragstart: onUserMove });
   return null;
@@ -141,8 +188,10 @@ function FitBounds({
   areas,
   enabled,
   fitKey,
+  fitPoints,
 }: {
   fitKey?: string | number;
+  fitPoints?: [number, number][];
   stops: MapStop[];
   me?: { lat: number; lng: number } | null;
   vehicles: MapVehicle[];
@@ -158,8 +207,8 @@ function FitBounds({
 
   useEffect(() => {
     if (!enabled) return;
-    const points: [number, number][] = stops.map((s) => [s.lat, s.lng]);
-    points.push(...areas.map((a) => [a.lat, a.lng] as [number, number]));
+    const points: [number, number][] = fitPoints?.length ? [...fitPoints] : stops.map((s) => [s.lat, s.lng]);
+    if (!fitPoints?.length) points.push(...areas.map((a) => [a.lat, a.lng] as [number, number]));
     if (me) points.push([me.lat, me.lng]);
     if (points.length === 0 && vehicles.length) points.push(...vehicles.map((v) => [v.lat, v.lng] as [number, number]));
     if (points.length === 0) return;
@@ -189,13 +238,22 @@ export default function MapView({
   follow,
   onUserMove,
   fitKey,
+  fitPoints,
+  locateTo,
+  fullscreen = false,
+  onToggleFullscreen,
 }: MapViewProps) {
+  const [map, setMap] = useState<L.Map | null>(null);
+  const locatePoint = locateTo === undefined ? me : locateTo;
+
   return (
+    <div className={cx("relative isolate overflow-hidden", className ?? "h-64 w-full rounded-[--radius-card]")}>
     <MapContainer
+      ref={setMap}
       center={center ?? KHUJAND}
       zoom={zoom}
-      scrollWheelZoom={false}
-      className={className ?? "h-64 w-full rounded-[--radius-card]"}
+      scrollWheelZoom={fullscreen}
+      className="h-full w-full"
     >
       <TileLayer
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
@@ -289,9 +347,26 @@ export default function MapView({
         </CircleMarker>
       ) : null}
       {onMapClick ? <ClickCatcher onMapClick={onMapClick} /> : null}
-      <FitBounds stops={stops} me={me} vehicles={vehicles} areas={areas} enabled={autoFit} fitKey={fitKey} />
+      <FitBounds stops={stops} me={me} vehicles={vehicles} areas={areas} enabled={autoFit} fitKey={fitKey} fitPoints={fitPoints} />
       {follow ? <Follow point={follow} /> : null}
       {onUserMove ? <UserMove onUserMove={onUserMove} /> : null}
+      {fullscreen ? null : <WheelOnClick />}
     </MapContainer>
+    <div className="absolute top-2 right-2 z-[1000] flex flex-col gap-2">
+      {onToggleFullscreen ? (
+        <MapButton label={fullscreen ? "Закрыть" : "На весь экран"} onClick={onToggleFullscreen}>
+          {fullscreen ? <IconClose className="size-5" /> : <IconExpand className="size-5" />}
+        </MapButton>
+      ) : null}
+      {locatePoint && map ? (
+        <MapButton
+          label="Где я"
+          onClick={() => map.setView([locatePoint.lat, locatePoint.lng], Math.max(map.getZoom(), 16))}
+        >
+          <IconLocate className="size-5" />
+        </MapButton>
+      ) : null}
+    </div>
+    </div>
   );
 }
