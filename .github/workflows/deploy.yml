@@ -34,6 +34,6 @@ jobs:
           fetch-depth: 0
       - uses: dokku/github-action@master
         with:
-          git_remote_url: ssh://dokku@89.125.120.7:22/transport
+          git_remote_url: ssh://dokku@89.125.120.7:58595/transport
           ssh_private_key: ${{ secrets.DOKKU_SSH_PRIVATE_KEY }}
           branch: main

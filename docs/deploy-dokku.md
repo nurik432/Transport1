@@ -1,13 +1,13 @@
 # Деплой на Dokku
 
-Сервер: `89.125.120.7`, приложение `transport`. Образ собирается из `apps/web/Dockerfile`,
+Сервер: `89.125.120.7`, SSH на порту **58595** (не 22), приложение `transport`. Образ собирается из `apps/web/Dockerfile`,
 миграции применяются автоматически перед переключением трафика (`app.json` →
 `scripts.dokku.predeploy`). Если миграция упала, новая версия не запускается, старая
 продолжает работать.
 
 ## Разовая настройка сервера
 
-Команды выполняются на сервере (`ssh root@89.125.120.7`).
+Команды выполняются на сервере (`ssh -p 58595 root@89.125.120.7`).
 
 ```bash
 # приложение
@@ -70,7 +70,7 @@ dokku postgres:unexpose transport-db           # на сервере, сразу
    ```
 2. Добавить публичный ключ на сервер:
    ```bash
-   cat dokku_deploy.pub | ssh root@89.125.120.7 dokku ssh-keys:add github-actions
+   cat dokku_deploy.pub | ssh -p 58595 root@89.125.120.7 dokku ssh-keys:add github-actions
    ```
 3. В GitHub: Settings → Secrets and variables → Actions → New repository secret,
    имя `DOKKU_SSH_PRIVATE_KEY`, значение — содержимое файла `dokku_deploy`.
@@ -81,7 +81,7 @@ dokku postgres:unexpose transport-db           # на сервере, сразу
 ## Ручной деплой
 
 ```bash
-git remote add dokku dokku@89.125.120.7:transport
+git remote add dokku ssh://dokku@89.125.120.7:58595/transport
 git push dokku main
 ```
 
