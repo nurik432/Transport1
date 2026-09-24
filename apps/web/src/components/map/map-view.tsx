@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import L from "leaflet";
 import { Circle, CircleMarker, MapContainer, Marker, Polyline, Popup, TileLayer, useMap, useMapEvents } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
@@ -15,8 +15,10 @@ export interface MapStop {
   highlight?: boolean;
   /** position in a route: drawn as a numbered pin instead of a dot */
   order?: number;
-  /** a stop that is available but not part of the route yet */
+  /** a stop that is available but not part of the route yet; for a numbered pin — already passed */
   muted?: boolean;
+  /** numbered pin colour; defaults to the first line's colour */
+  color?: string;
 }
 
 export interface MapLine {
@@ -67,6 +69,12 @@ export interface MapViewProps {
   onMapClick?: (lat: number, lng: number) => void;
   /** called when a stop marker is clicked */
   onStopClick?: (stopId: string) => void;
+  /** keeps this point centred as it moves (navigation mode) */
+  follow?: { lat: number; lng: number } | null;
+  /** called when the user drags the map, e.g. to stop following */
+  onUserMove?: () => void;
+  /** change it to fit the stops again */
+  fitKey?: string | number;
 }
 
 const KHUJAND: [number, number] = [40.2833, 69.6333];
@@ -87,12 +95,35 @@ function vehicleIcon(v: MapVehicle): L.DivIcon {
 }
 
 function orderedIcon(stop: MapStop, color: string): L.DivIcon {
+  const size = stop.highlight ? 32 : 26;
+  const background = stop.muted ? "#94a3b8" : color;
+  const ring = stop.highlight ? "box-shadow:0 0 0 3px #ea580c" : "box-shadow:0 1px 3px rgba(15,23,42,.4)";
   return L.divIcon({
     className: "",
-    iconSize: [26, 26],
-    iconAnchor: [13, 13],
-    html: `<div style="display:flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:9999px;background:${color};border:2px solid #fff;box-shadow:0 1px 3px rgba(15,23,42,.4);color:#fff;font:600 12px/1 system-ui,sans-serif">${stop.order}</div>`,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+    html: `<div style="display:flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;border-radius:9999px;background:${background};border:2px solid #fff;${ring};color:#fff;font:600 12px/1 system-ui,sans-serif">${stop.order}</div>`,
   });
+}
+
+/** Keeps a moving point in view, zooming in once when following starts. */
+function Follow({ point }: { point: { lat: number; lng: number } }) {
+  const map = useMap();
+  const zoomed = useRef(false);
+  useEffect(() => {
+    if (!zoomed.current) {
+      zoomed.current = true;
+      map.setView([point.lat, point.lng], Math.max(map.getZoom(), 16));
+    } else {
+      map.panTo([point.lat, point.lng]);
+    }
+  }, [map, point.lat, point.lng]);
+  return null;
+}
+
+function UserMove({ onUserMove }: { onUserMove: () => void }) {
+  useMapEvents({ dragstart: onUserMove });
+  return null;
 }
 
 /** Turns clicks on empty map space into a callback. */
@@ -109,7 +140,9 @@ function FitBounds({
   vehicles,
   areas,
   enabled,
+  fitKey,
 }: {
+  fitKey?: string | number;
   stops: MapStop[];
   me?: { lat: number; lng: number } | null;
   vehicles: MapVehicle[];
@@ -118,7 +151,10 @@ function FitBounds({
 }) {
   const map = useMap();
   // Fit to the stops only: vehicle updates should not move the map under the user.
-  const key = useMemo(() => [...stops.map((s) => s.id), ...areas.map((a) => a.id)].join("|"), [stops, areas]);
+  const key = useMemo(
+    () => [fitKey ?? "", ...stops.map((s) => s.id), ...areas.map((a) => a.id)].join("|"),
+    [stops, areas, fitKey],
+  );
 
   useEffect(() => {
     if (!enabled) return;
@@ -150,6 +186,9 @@ export default function MapView({
   autoFit = true,
   onMapClick,
   onStopClick,
+  follow,
+  onUserMove,
+  fitKey,
 }: MapViewProps) {
   return (
     <MapContainer
@@ -199,7 +238,7 @@ export default function MapView({
           <Marker
             key={s.id}
             position={[s.lat, s.lng]}
-            icon={orderedIcon(s, lines[0]?.color ?? "#2563eb")}
+            icon={orderedIcon(s, s.color ?? lines[0]?.color ?? "#2563eb")}
             zIndexOffset={300}
             bubblingMouseEvents={false}
             eventHandlers={onStopClick ? { click: () => onStopClick(s.id) } : undefined}
@@ -250,7 +289,9 @@ export default function MapView({
         </CircleMarker>
       ) : null}
       {onMapClick ? <ClickCatcher onMapClick={onMapClick} /> : null}
-      <FitBounds stops={stops} me={me} vehicles={vehicles} areas={areas} enabled={autoFit} />
+      <FitBounds stops={stops} me={me} vehicles={vehicles} areas={areas} enabled={autoFit} fitKey={fitKey} />
+      {follow ? <Follow point={follow} /> : null}
+      {onUserMove ? <UserMove onUserMove={onUserMove} /> : null}
     </MapContainer>
   );
 }

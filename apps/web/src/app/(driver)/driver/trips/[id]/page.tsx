@@ -2,19 +2,20 @@ import { notFound, redirect } from "next/navigation";
 import { formatLocalDate, formatLocalTime, localNow } from "@transport/domain";
 import { requireRole } from "@/lib/auth";
 import { getTrip } from "@/lib/queries";
+import { getDeviationSettings } from "@/lib/live";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { MobileHeader } from "@/components/mobile-shell";
 import { Card, RouteBadge, SectionTitle, cx } from "@/components/ui";
 import { IconBus, IconUsers } from "@/components/icons";
 import { DrivingPanel, type PanelStop } from "./driving-panel";
-import { PositionTracker } from "./position-tracker";
+import { TripNavigation, type NavStop } from "./trip-navigation";
 
 export default async function DriverTripPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requireRole("driver");
   const { id } = await params;
   const now = localNow();
 
-  const trip = await getTrip(id);
+  const [trip, deviation] = await Promise.all([getTrip(id), getDeviationSettings()]);
   if (!trip) notFound();
   if (trip.driver?.id !== user.id) redirect("/driver");
 
@@ -30,6 +31,18 @@ export default async function DriverTripPage({ params }: { params: Promise<{ id:
     alighted: s.alighted,
     waiting: s.waiting,
     waitingNames: s.waitingNames,
+  }));
+
+  const navStops: NavStop[] = trip.stops.map((s) => ({
+    stopId: s.stopId,
+    name: s.name,
+    seq: s.seq,
+    offsetMin: s.offsetMin,
+    lat: s.lat,
+    lng: s.lng,
+    roadDistanceM: s.roadDistanceM,
+    plannedLabel: formatLocalTime(s.plannedAt),
+    arrived: Boolean(s.arrivedAt),
   }));
 
   const minutesTo: Record<string, number> = {};
@@ -65,7 +78,14 @@ export default async function DriverTripPage({ params }: { params: Promise<{ id:
           </div>
         </Card>
 
-        <PositionTracker tripId={trip.id} active={trip.status === "in_progress"} />
+        <TripNavigation
+          tripId={trip.id}
+          active={trip.status === "in_progress"}
+          color={trip.route.color}
+          path={trip.route.path}
+          stops={navStops}
+          offRouteThresholdM={deviation.offRouteM}
+        />
 
         <DrivingPanel tripId={trip.id} status={trip.status} stops={stops} minutesTo={minutesTo} />
 

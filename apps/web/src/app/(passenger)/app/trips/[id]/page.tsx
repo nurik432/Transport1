@@ -8,6 +8,7 @@ import { Card, RouteBadge } from "@/components/ui";
 import { IconBus, IconUsers } from "@/components/icons";
 import { BookButton } from "../../book-button";
 import { TripLivePanel } from "./live-panel";
+import { WalkToStop } from "./walk-to-stop";
 
 const TRIP_STATUS_LABEL: Record<string, string> = {
   planned: "По расписанию",
@@ -75,6 +76,12 @@ export default async function TripPage({ params }: { params: Promise<{ id: strin
             <p className="text-center text-xs text-muted-foreground">Посадка на остановке «{boardingStop.name}»</p>
           ) : null}
         </Card>
+
+        {boardingStop && (trip.status === "planned" || trip.status === "in_progress") ? (
+          <WalkToStop
+            stop={{ id: boardingStop.stopId, name: boardingStop.name, lat: boardingStop.lat, lng: boardingStop.lng }}
+          />
+        ) : null}
 
         <TripLivePanel
           tripId={trip.id}
