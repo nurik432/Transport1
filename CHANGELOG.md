@@ -159,3 +159,4 @@ Mechanical record only - see git history for diffs and rationale._
 - 2026-09-23 13:49  Edit  C:/Users/fid926309449/transport1/.claude/worktrees/dokku-remote-config-248825/README.md
 - 2026-09-24 10:11  Write  C:/Users/fid926309449/transport1/.claude/worktrees/dokku-remote-config-248825/apps/web/src/app/logout/route.ts
 - 2026-09-24 11:07  Write  C:/Users/fid926309449/transport1/.claude/worktrees/dokku-remote-config-248825/apps/web/src/app/(driver)/driver/trips/[id]/position-tracker.tsx
+- 2026-09-24 11:59  Write  C:/Users/fid926309449/transport1/.claude/worktrees/dokku-remote-config-248825/apps/web/src/app/(driver)/driver/trips/[id]/trip-navigation.tsx

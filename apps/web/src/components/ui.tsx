@@ -46,12 +46,22 @@ export function LinkButton({
   className,
   href,
   children,
+  external,
 }: {
   variant?: ButtonVariant;
   className?: string;
   href: string;
   children: ReactNode;
+  /** opens another site or app in a new tab */
+  external?: boolean;
 }) {
+  if (external) {
+    return (
+      <a href={href} target="_blank" rel="noopener noreferrer" className={cx(BUTTON_BASE, BUTTON_STYLES[variant], className)}>
+        {children}
+      </a>
+    );
+  }
   return (
     <Link href={href} className={cx(BUTTON_BASE, BUTTON_STYLES[variant], className)}>
       {children}

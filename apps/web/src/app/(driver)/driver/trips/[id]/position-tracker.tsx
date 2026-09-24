@@ -25,8 +25,22 @@ const APPROXIMATE: PositionOptions = { enableHighAccuracy: false, maximumAge: 60
  * Tracking starts when the trip starts and stops as soon as it ends, so the
  * driver is never tracked outside a working trip.
  */
-export function PositionTracker({ tripId, active }: { tripId: string; active: boolean }) {
+export function PositionTracker({
+  tripId,
+  active,
+  onFix,
+}: {
+  tripId: string;
+  active: boolean;
+  /** every fix, before throttling: the trip map follows the device with it */
+  onFix?: (pos: GeolocationPosition) => void;
+}) {
   const router = useRouter();
+  // Latest callback without restarting the watch when the parent re-renders.
+  const onFixRef = useRef(onFix);
+  useEffect(() => {
+    onFixRef.current = onFix;
+  });
   const [status, setStatus] = useState<Status>("starting");
   const [approximate, setApproximate] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
@@ -49,6 +63,7 @@ export function PositionTracker({ tripId, active }: { tripId: string; active: bo
 
     const send = async (pos: GeolocationPosition) => {
       gotFix = true;
+      onFixRef.current?.(pos);
       const now = Date.now();
       if (now - lastSent < SEND_EVERY_MS) return;
       lastSent = now;

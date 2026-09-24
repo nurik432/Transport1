@@ -148,3 +148,23 @@ export const IconLogout = (p: SVGProps<SVGSVGElement>) => (
     <path d="M16 17l5-5-5-5M21 12H9" />
   </Base>
 );
+
+export const IconNavigation = (p: SVGProps<SVGSVGElement>) => (
+  <Base {...p}>
+    <path d="M3 11 21 3l-8 18-2-8-8-2Z" />
+  </Base>
+);
+
+export const IconLocate = (p: SVGProps<SVGSVGElement>) => (
+  <Base {...p}>
+    <circle cx="12" cy="12" r="3" />
+    <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+    <circle cx="12" cy="12" r="7" />
+  </Base>
+);
+
+export const IconExpand = (p: SVGProps<SVGSVGElement>) => (
+  <Base {...p}>
+    <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" />
+  </Base>
+);
