@@ -5,9 +5,20 @@ import { useRouter } from "next/navigation";
 import { cx } from "@/components/ui";
 import { IconAlert, IconPin } from "@/components/icons";
 
-type Status = "starting" | "sending" | "denied" | "error";
+/**
+ * starting   — waiting for the first fix
+ * sending    — the last sample reached the server
+ * denied     — the driver (or the OS) refused location access
+ * no_fix     — the device can't determine its position (no GPS, OS location off, timeout)
+ * send_error — a fix was obtained but the server or network rejected it
+ */
+type Status = "starting" | "sending" | "denied" | "no_fix" | "send_error";
 
 const SEND_EVERY_MS = 15_000;
+
+const PRECISE: PositionOptions = { enableHighAccuracy: true, maximumAge: 10_000, timeout: 20_000 };
+// Wi-Fi / network location: works on laptops and indoors where GPS never gets a fix.
+const APPROXIMATE: PositionOptions = { enableHighAccuracy: false, maximumAge: 60_000, timeout: 30_000 };
 
 /**
  * Streams the driver's position while the trip is in progress.
@@ -17,18 +28,30 @@ const SEND_EVERY_MS = 15_000;
 export function PositionTracker({ tripId, active }: { tripId: string; active: boolean }) {
   const router = useRouter();
   const [status, setStatus] = useState<Status>("starting");
+  const [approximate, setApproximate] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
   const [sentAt, setSentAt] = useState<Date | null>(null);
-  const lastSent = useRef(0);
   const lastRefresh = useRef(0);
 
   useEffect(() => {
-    if (!active || typeof navigator === "undefined" || !navigator.geolocation) return;
+    if (!active || typeof navigator === "undefined") return;
+    if (!navigator.geolocation) {
+      queueMicrotask(() => setStatus("no_fix"));
+      return;
+    }
     let cancelled = false;
+    let watchId: number | null = null;
+    let precise = true;
+    let gotFix = false;
+    // Per watch, not a ref: a re-run effect must not inherit the previous throttle,
+    // or its first fix is dropped and the screen stays on "Определяем…".
+    let lastSent = 0;
 
     const send = async (pos: GeolocationPosition) => {
+      gotFix = true;
       const now = Date.now();
-      if (now - lastSent.current < SEND_EVERY_MS) return;
-      lastSent.current = now;
+      if (now - lastSent < SEND_EVERY_MS) return;
+      lastSent = now;
 
       try {
         const response = await fetch("/api/v1/positions", {
@@ -51,6 +74,7 @@ export function PositionTracker({ tripId, active }: { tripId: string; active: bo
 
         if (response.ok) {
           setStatus("sending");
+          setSendError(null);
           setSentAt(new Date());
           // Refresh the screen occasionally so waiting counts stay current.
           if (now - lastRefresh.current > 60_000) {
@@ -58,50 +82,83 @@ export function PositionTracker({ tripId, active }: { tripId: string; active: bo
             router.refresh();
           }
         } else {
-          setStatus("error");
+          const body = (await response.json().catch(() => null)) as { error?: string } | null;
+          if (cancelled) return;
+          setStatus("send_error");
+          setSendError(body?.error ?? `ошибка сервера ${response.status}`);
         }
       } catch {
-        if (!cancelled) setStatus("error");
+        if (cancelled) return;
+        setStatus("send_error");
+        setSendError("нет связи с сервером");
       }
     };
 
-    const watchId = navigator.geolocation.watchPosition(
-      (pos) => void send(pos),
-      (err) => {
-        if (cancelled) return;
-        setStatus(err.code === err.PERMISSION_DENIED ? "denied" : "error");
-      },
-      { enableHighAccuracy: true, maximumAge: 10_000, timeout: 20_000 },
-    );
+    const onError = (err: GeolocationPositionError) => {
+      if (cancelled) return;
+      if (err.code === err.PERMISSION_DENIED) {
+        setStatus("denied");
+        return;
+      }
+      // Precise mode never produced a fix: fall back to network location once.
+      // After a fix, a timeout is a transient gap (tunnel, building) — keep watching.
+      if (precise && !gotFix) {
+        precise = false;
+        setApproximate(true);
+        start();
+        return;
+      }
+      setStatus("no_fix");
+    };
+
+    const start = () => {
+      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+      watchId = navigator.geolocation.watchPosition((pos) => void send(pos), onError, precise ? PRECISE : APPROXIMATE);
+    };
+
+    start();
 
     return () => {
       cancelled = true;
-      navigator.geolocation.clearWatch(watchId);
+      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
     };
   }, [active, tripId, router]);
 
   if (!active) return null;
 
-  const tone =
-    status === "denied" || status === "error"
-      ? "bg-danger-soft text-red-800"
-      : status === "sending"
-        ? "bg-ok-soft text-green-800"
-        : "bg-muted text-muted-foreground";
+  const failed = status === "denied" || status === "no_fix" || status === "send_error";
+  const tone = failed
+    ? "bg-danger-soft text-red-800"
+    : status === "sending"
+      ? "bg-ok-soft text-green-800"
+      : "bg-muted text-muted-foreground";
 
+  const time = sentAt ? ` · ${sentAt.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}` : "";
   const label =
     status === "denied"
       ? "Геолокация запрещена — пассажиры не видят транспорт на карте"
-      : status === "error"
-        ? "Не удаётся отправить координаты"
-        : status === "sending"
-          ? `Координаты передаются${sentAt ? ` · ${sentAt.toLocaleTimeString("ru-RU", { hour: "2-digit", minute: "2-digit" })}` : ""}`
-          : "Определяем местоположение…";
+      : status === "no_fix"
+        ? "Не удаётся определить местоположение"
+        : status === "send_error"
+          ? `Не удаётся отправить координаты: ${sendError}`
+          : status === "sending"
+            ? `Координаты передаются${approximate ? " (приблизительно)" : ""}${time}`
+            : "Определяем местоположение…";
+
+  const hint =
+    status === "denied"
+      ? "Разрешите доступ к местоположению в настройках браузера для этого сайта и обновите страницу."
+      : status === "no_fix"
+        ? "Проверьте, что геолокация включена на устройстве (на компьютере — в параметрах конфиденциальности Windows) и разрешена браузеру."
+        : null;
 
   return (
-    <p className={cx("flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium", tone)}>
-      {status === "denied" || status === "error" ? <IconAlert className="size-4" /> : <IconPin className="size-4" />}
-      {label}
-    </p>
+    <div className={cx("rounded-lg px-3 py-2 text-xs", tone)}>
+      <p className="flex items-center gap-2 font-medium">
+        {failed ? <IconAlert className="size-4 shrink-0" /> : <IconPin className="size-4 shrink-0" />}
+        {label}
+      </p>
+      {hint && <p className="mt-1 pl-6">{hint}</p>}
+    </div>
   );
 }
