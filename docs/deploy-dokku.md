@@ -28,8 +28,13 @@ dokku config:set --no-restart transport \
 # опционально
 dokku config:set --no-restart transport \
   ROUTING_URL=https://router.project-osrm.org \
+  WALK_ROUTING_URL=https://routing.openstreetmap.de/routed-foot \
   VAPID_PUBLIC_KEY=... VAPID_PRIVATE_KEY=... VAPID_SUBJECT=mailto:admin@example.com
 ```
+
+`WALK_ROUTING_URL` — пешеходный OSRM для кнопки «Как дойти до остановки»; без переменной
+используется бесплатный сервер FOSSGIS. Ему уходят только координаты начала и остановки,
+без данных пассажира.
 
 VAPID-ключи генерируются командой `npx web-push generate-vapid-keys`. Публичный ключ
 читается в рантайме, пересобирать образ после его смены не нужно.

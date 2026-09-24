@@ -160,3 +160,6 @@ Mechanical record only - see git history for diffs and rationale._
 - 2026-09-24 10:11  Write  C:/Users/fid926309449/transport1/.claude/worktrees/dokku-remote-config-248825/apps/web/src/app/logout/route.ts
 - 2026-09-24 11:07  Write  C:/Users/fid926309449/transport1/.claude/worktrees/dokku-remote-config-248825/apps/web/src/app/(driver)/driver/trips/[id]/position-tracker.tsx
 - 2026-09-24 11:59  Write  C:/Users/fid926309449/transport1/.claude/worktrees/dokku-remote-config-248825/apps/web/src/app/(driver)/driver/trips/[id]/trip-navigation.tsx
+- 2026-09-24 12:06  Write  C:/Users/fid926309449/transport1/.claude/worktrees/dokku-remote-config-248825/apps/web/src/app/(passenger)/app/trips/[id]/walk-to-stop.tsx
+- 2026-09-24 12:10  Edit  C:/Users/fid926309449/transport1/.claude/worktrees/dokku-remote-config-248825/docs/deploy-dokku.md
+- 2026-09-24 12:10  Edit  C:/Users/fid926309449/transport1/.claude/worktrees/dokku-remote-config-248825/docker-compose.yml

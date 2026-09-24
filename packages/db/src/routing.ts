@@ -1,5 +1,5 @@
 import { asc, eq } from "drizzle-orm";
-import { cumulativeAlong, type LatLng } from "@transport/domain";
+import { cumulativeAlong, distanceMeters, type LatLng } from "@transport/domain";
 import type { Db } from "./client";
 import * as schema from "./schema";
 
@@ -55,6 +55,7 @@ interface OsrmResponse {
   message?: string;
   routes?: {
     distance?: number;
+    duration?: number;
     geometry?: { coordinates?: [number, number][] };
     legs?: { distance?: number }[];
   }[];
@@ -105,6 +106,76 @@ export async function fetchRoadPath(stops: readonly LatLng[]): Promise<RoadPath>
   } catch (error) {
     const reason = error instanceof Error ? error.message : "неизвестная ошибка";
     return straightPath(stops, `Маршрутизатор недоступен: ${reason}`);
+  }
+}
+
+// ---------------------------------------------------------------- walking
+
+/** Average walking speed for the straight-line fallback. */
+const WALK_SPEED_KPH = 4.5;
+
+function walkRoutingUrl(): string {
+  return process.env.WALK_ROUTING_URL ?? "https://routing.openstreetmap.de/routed-foot";
+}
+
+export interface WalkPath {
+  /** polyline as [lat, lng] pairs */
+  points: [number, number][];
+  distanceM: number;
+  durationMin: number;
+  source: PathSource;
+  error?: string;
+}
+
+function straightWalk(from: LatLng, to: LatLng, error?: string): WalkPath {
+  const distanceM = Math.round(distanceMeters(from, to));
+  return {
+    points: [
+      [round5(from.lat), round5(from.lng)],
+      [round5(to.lat), round5(to.lng)],
+    ],
+    distanceM,
+    durationMin: Math.max(1, Math.round((distanceM / 1000 / WALK_SPEED_KPH) * 60)),
+    source: "straight",
+    error,
+  };
+}
+
+/**
+ * Walking path from a passenger to a stop, from an OSRM foot profile.
+ * Requested only when the passenger asks for directions; the position is
+ * sent to the provider without any identity. Falls back to a straight line.
+ */
+export async function fetchWalkingPath(from: LatLng, to: LatLng): Promise<WalkPath> {
+  const coordinates = `${round5(from.lng)},${round5(from.lat)};${round5(to.lng)},${round5(to.lat)}`;
+  const url = `${walkRoutingUrl()}/route/v1/foot/${coordinates}?overview=full&geometries=geojson`;
+
+  try {
+    const response = await fetch(url, {
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      headers: { accept: "application/json" },
+      cache: "no-store",
+    });
+    if (!response.ok) return straightWalk(from, to, `Маршрутизатор ответил ${response.status}`);
+
+    const json = (await response.json()) as OsrmResponse;
+    const route = json.routes?.[0];
+    const coords = route?.geometry?.coordinates;
+    if (json.code !== "Ok" || !route || !coords || coords.length < 2) {
+      return straightWalk(from, to, json.message ?? "Маршрутизатор не построил путь");
+    }
+
+    const distanceM = Math.round(route.distance ?? 0);
+    return {
+      points: coords.map(([lng, lat]) => [round5(lat), round5(lng)] as [number, number]),
+      distanceM,
+      // Some foot profiles report optimistic speeds; never faster than the fallback pace.
+      durationMin: Math.max(1, Math.round(Math.max((route.duration ?? 0) / 60, (distanceM / 1000 / WALK_SPEED_KPH) * 60))),
+      source: "road",
+    };
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : "неизвестная ошибка";
+    return straightWalk(from, to, `Маршрутизатор недоступен: ${reason}`);
   }
 }
 
