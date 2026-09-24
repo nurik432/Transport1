@@ -77,9 +77,12 @@ export default async function TripPage({ params }: { params: Promise<{ id: strin
           ) : null}
         </Card>
 
-        {boardingStop && (trip.status === "planned" || trip.status === "in_progress") ? (
+        {trip.status === "planned" || trip.status === "in_progress" ? (
           <WalkToStop
-            stop={{ id: boardingStop.stopId, name: boardingStop.name, lat: boardingStop.lat, lng: boardingStop.lng }}
+            tripId={trip.id}
+            stops={trip.stops.map((s) => ({ id: s.stopId, name: s.name, lat: s.lat, lng: s.lng }))}
+            bookedStopId={myStopId ?? null}
+            canBook
           />
         ) : null}
 
