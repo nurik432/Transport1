@@ -208,3 +208,4 @@ Mechanical record only - see git history for diffs and rationale._
 - 2026-09-25 16:09  Write  C:/Users/fid926309449/transport1/apps/web/src/app/(driver)/driver/notifications/page.tsx
 - 2026-09-25 16:14  Write  C:/Users/fid926309449/.claude/projects/C--Users-fid926309449-transport1/memory/admin-design-reference.md
 - 2026-09-25 16:54  Write  C:/Users/fid926309449/transport1/docs/02-user-guide.md
+- 2026-09-25 17:03  Write  C:/Users/fid926309449/transport1/docs/03-faq.md
