@@ -197,3 +197,12 @@ Mechanical record only - see git history for diffs and rationale._
 - 2026-09-25 14:57  Edit  C:/Users/fid926309449/transport1/apps/web/src/app/(admin)/admin/analytics/route-charts.tsx
 - 2026-09-25 14:57  Edit  C:/Users/fid926309449/transport1/apps/web/src/app/(admin)/admin/analytics/route-charts.tsx
 - 2026-09-25 15:04  Write  C:/Users/fid926309449/.claude/projects/C--Users-fid926309449-transport1/memory/admin-design-reference.md
+- 2026-09-25 15:31  Write  C:/Users/fid926309449/transport1/apps/web/src/app/(driver)/nav.tsx
+- 2026-09-25 15:31  Write  C:/Users/fid926309449/transport1/apps/web/src/app/(driver)/layout.tsx
+- 2026-09-25 15:32  Write  C:/Users/fid926309449/transport1/apps/web/src/app/(driver)/driver/page.tsx
+- 2026-09-25 15:36  Write  C:/Users/fid926309449/transport1/apps/web/src/app/(driver)/driver/trips/[id]/gps-check.tsx
+- 2026-09-25 15:36  Write  C:/Users/fid926309449/transport1/apps/web/src/app/(driver)/driver/trips/[id]/before-start.tsx
+- 2026-09-25 15:38  Write  C:/Users/fid926309449/transport1/apps/web/src/app/(driver)/driver/trips/[id]/driving-screen.tsx
+- 2026-09-25 15:39  Write  C:/Users/fid926309449/transport1/apps/web/src/app/(driver)/driver/trips/[id]/page.tsx
+- 2026-09-25 16:08  Write  C:/Users/fid926309449/transport1/apps/web/src/app/(driver)/driver/profile/page.tsx
+- 2026-09-25 16:09  Write  C:/Users/fid926309449/transport1/apps/web/src/app/(driver)/driver/notifications/page.tsx

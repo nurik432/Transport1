@@ -697,13 +697,21 @@ export async function getDriverTrips(driverId: string, date: string) {
       vehicleModel: vehicles.model,
       vehicleCapacity: vehicles.capacity,
       booked: sql<number>`(select count(*) from ${passengerTrips} pt where pt.trip_id = ${trips.id} and pt.status <> 'cancelled')`,
+      // What the driver actually counted in, for the "перевезено" line of a
+      // finished trip.
+      boardedTotal: sql<number>`(select coalesce(sum(e.boarded), 0) from ${tripStopEvents} e where e.trip_id = ${trips.id})`,
     })
     .from(trips)
     .innerJoin(routes, eq(routes.id, trips.routeId))
     .leftJoin(vehicles, eq(vehicles.id, trips.vehicleId))
     .where(and(eq(trips.driverId, driverId), eq(trips.date, date)))
     .orderBy(asc(trips.startTime));
-  return rows.map((r) => ({ ...r, startTime: r.startTime.slice(0, 5), booked: Number(r.booked) }));
+  return rows.map((r) => ({
+    ...r,
+    startTime: r.startTime.slice(0, 5),
+    booked: Number(r.booked),
+    boardedTotal: Number(r.boardedTotal),
+  }));
 }
 
 /** The driver's trip that is running now, if any. */
