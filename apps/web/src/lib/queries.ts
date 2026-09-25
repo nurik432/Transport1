@@ -157,6 +157,59 @@ export async function listRoutes(onlyActive = true): Promise<RouteDetail[]> {
   }));
 }
 
+export interface RouteDayStatus {
+  /** today's trips that have not finished, earliest first */
+  upcoming: { tripId: string; startTime: string; status: "planned" | "in_progress" }[];
+  /** today's cancelled departures */
+  cancelled: string[];
+  /** the current shape was published within `changedWithinDays` and replaced an older one */
+  changedRecently: boolean;
+}
+
+/**
+ * What a passenger needs to see next to each route in the list: today's
+ * departures, cancellations and whether the route shape changed recently.
+ */
+export async function getRoutesDayStatus(
+  routeIds: string[],
+  date: string,
+  now: Date,
+  changedWithinDays = 3,
+): Promise<Map<string, RouteDayStatus>> {
+  const result = new Map<string, RouteDayStatus>();
+  if (!routeIds.length) return result;
+  for (const id of routeIds) result.set(id, { upcoming: [], cancelled: [], changedRecently: false });
+
+  const since = new Date(now.getTime() - changedWithinDays * 86_400_000);
+  const [tripRows, versionRows] = await Promise.all([
+    db
+      .select({ id: trips.id, routeId: trips.routeId, startTime: trips.startTime, status: trips.status })
+      .from(trips)
+      .where(and(eq(trips.date, date), inArray(trips.routeId, routeIds)))
+      .orderBy(asc(trips.startTime)),
+    db
+      .select({ routeId: routes.id, version: routeVersions.version, createdAt: routeVersions.createdAt })
+      .from(routes)
+      .innerJoin(routeVersions, eq(routeVersions.id, routes.currentVersionId))
+      .where(inArray(routes.id, routeIds)),
+  ]);
+
+  for (const t of tripRows) {
+    const entry = result.get(t.routeId);
+    if (!entry) continue;
+    if (t.status === "planned" || t.status === "in_progress") {
+      entry.upcoming.push({ tripId: t.id, startTime: t.startTime.slice(0, 5), status: t.status });
+    } else if (t.status === "cancelled") {
+      entry.cancelled.push(t.startTime.slice(0, 5));
+    }
+  }
+  for (const v of versionRows) {
+    const entry = result.get(v.routeId);
+    if (entry) entry.changedRecently = v.version > 1 && v.createdAt >= since;
+  }
+  return result;
+}
+
 export async function getRoute(id: string): Promise<RouteDetail | null> {
   const all = await listRoutes(false);
   return all.find((r) => r.id === id) ?? null;
@@ -259,6 +312,8 @@ export interface Arrival {
   stopId: string;
   stopName: string;
   seq: number;
+  /** scheduled arrival at this stop (departure + stop offset) */
+  plannedAt: Date;
   eta: EtaResult;
   vehicle: { number: string; model: string; capacity: number } | null;
   /** current bookings for this trip */
@@ -273,6 +328,8 @@ interface UpcomingArrivalsOptions {
   now: Date;
   passengerId?: string;
   limit?: number;
+  /** only trips of this direction; both when omitted */
+  direction?: "to_work" | "from_work";
 }
 
 /**
@@ -280,7 +337,7 @@ interface UpcomingArrivalsOptions {
  * ETA comes from the schedule and is re-based on driver stop marks when a trip is running.
  */
 export async function getUpcomingArrivals(opts: UpcomingArrivalsOptions): Promise<Arrival[]> {
-  const { stopIds, dates, now, passengerId, limit = 12 } = opts;
+  const { stopIds, dates, now, passengerId, limit = 12, direction } = opts;
   if (!stopIds.length || !dates.length) return [];
 
   const rows = await db
@@ -307,7 +364,13 @@ export async function getUpcomingArrivals(opts: UpcomingArrivalsOptions): Promis
     .innerJoin(routeStops, and(eq(routeStops.versionId, tripVersionId), inArray(routeStops.stopId, stopIds)))
     .innerJoin(stops, eq(stops.id, routeStops.stopId))
     .leftJoin(vehicles, eq(vehicles.id, trips.vehicleId))
-    .where(and(inArray(trips.date, dates), inArray(trips.status, ["planned", "in_progress"])));
+    .where(
+      and(
+        inArray(trips.date, dates),
+        inArray(trips.status, ["planned", "in_progress"]),
+        direction ? eq(routes.direction, direction) : undefined,
+      ),
+    );
   if (!rows.length) return [];
 
   const tripIds = [...new Set(rows.map((r) => r.tripId))];
@@ -377,6 +440,7 @@ export async function getUpcomingArrivals(opts: UpcomingArrivalsOptions): Promis
       stopId: r.stopId,
       stopName: r.stopName,
       seq: r.seq,
+      plannedAt: new Date(tripStartAt.getTime() + r.offsetMin * 60_000),
       eta,
       vehicle: r.vehicleNumber
         ? { number: r.vehicleNumber, model: r.vehicleModel!, capacity: r.vehicleCapacity! }

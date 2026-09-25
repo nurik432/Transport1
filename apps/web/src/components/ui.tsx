@@ -21,34 +21,50 @@ export function SectionTitle({ children, action }: { children: ReactNode; action
   );
 }
 
-type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
+type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "danger-ghost" | "inverse";
 
 const BUTTON_STYLES: Record<ButtonVariant, string> = {
   primary: "bg-primary text-on-primary hover:bg-blue-700",
   secondary: "border border-border bg-card text-foreground hover:bg-muted",
   ghost: "text-muted-foreground hover:bg-muted hover:text-foreground",
   danger: "bg-danger text-white hover:bg-red-700",
+  /** quiet destructive action, e.g. "Отменить" next to a booking */
+  "danger-ghost": "text-danger hover:bg-danger-soft",
+  /** on the dark "ink" trip card */
+  inverse: "border border-white/30 text-on-ink hover:bg-white/10",
 };
 
 const BUTTON_BASE =
-  "inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-lg px-4 text-sm font-medium transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-60";
+  "inline-flex cursor-pointer items-center justify-center gap-2 transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-60";
+
+type ButtonSize = "md" | "lg";
+
+/** Size lives apart from the base so callers never fight it with overrides. */
+const BUTTON_SIZES: Record<ButtonSize, string> = {
+  md: "min-h-11 rounded-lg px-4 text-sm font-medium",
+  /** the one main action on a passenger screen */
+  lg: "min-h-13 rounded-xl px-5 text-base font-bold",
+};
 
 export function Button({
   variant = "primary",
+  size = "md",
   className,
   ...props
-}: ComponentPropsWithoutRef<"button"> & { variant?: ButtonVariant }) {
-  return <button className={cx(BUTTON_BASE, BUTTON_STYLES[variant], className)} {...props} />;
+}: ComponentPropsWithoutRef<"button"> & { variant?: ButtonVariant; size?: ButtonSize }) {
+  return <button className={cx(BUTTON_BASE, BUTTON_SIZES[size], BUTTON_STYLES[variant], className)} {...props} />;
 }
 
 export function LinkButton({
   variant = "secondary",
+  size = "md",
   className,
   href,
   children,
   external,
 }: {
   variant?: ButtonVariant;
+  size?: ButtonSize;
   className?: string;
   href: string;
   children: ReactNode;
@@ -57,13 +73,13 @@ export function LinkButton({
 }) {
   if (external) {
     return (
-      <a href={href} target="_blank" rel="noopener noreferrer" className={cx(BUTTON_BASE, BUTTON_STYLES[variant], className)}>
+      <a href={href} target="_blank" rel="noopener noreferrer" className={cx(BUTTON_BASE, BUTTON_SIZES[size], BUTTON_STYLES[variant], className)}>
         {children}
       </a>
     );
   }
   return (
-    <Link href={href} className={cx(BUTTON_BASE, BUTTON_STYLES[variant], className)}>
+    <Link href={href} className={cx(BUTTON_BASE, BUTTON_SIZES[size], BUTTON_STYLES[variant], className)}>
       {children}
     </Link>
   );
@@ -86,11 +102,27 @@ export function StatusPill({ status, className }: { status: LoadStatus; classNam
   );
 }
 
-export function RouteBadge({ name, color, className }: { name: string; color?: string | null; className?: string }) {
+const ROUTE_BADGE_SIZES = {
+  sm: "rounded-md px-2 py-0.5 text-sm font-semibold",
+  md: "h-8 min-w-9 justify-center rounded-lg px-2 text-base font-extrabold",
+  lg: "h-14 min-w-14 justify-center rounded-2xl px-2.5 text-2xl font-extrabold",
+} as const;
+
+export function RouteBadge({
+  name,
+  color,
+  size = "sm",
+  className,
+}: {
+  name: string;
+  color?: string | null;
+  size?: keyof typeof ROUTE_BADGE_SIZES;
+  className?: string;
+}) {
   return (
     <span
-      className={cx("inline-flex items-center rounded-md px-2 py-0.5 text-sm font-semibold text-white", className)}
-      style={{ backgroundColor: color ?? "#2563eb" }}
+      className={cx("inline-flex shrink-0 items-center text-white", ROUTE_BADGE_SIZES[size], className)}
+      style={{ backgroundColor: color ?? "#1f4fd8" }}
     >
       {name}
     </span>

@@ -2,22 +2,25 @@
 
 /*
  * Design system: Minimalism / Swiss style, transit blue.
- * Font: Inter (full Cyrillic coverage; the suggested display face had none).
+ * Font: Onest (made for Cyrillic, tabular figures for times).
+ * Passenger screens read like a stop departure board: the ETA is the largest
+ * thing on screen, "ink" marks an active trip, "highlight" marks the
+ * passenger's own stop.
  */
 
 @theme {
-  --color-primary: #2563eb;
+  --color-primary: #1f4fd8;
   --color-on-primary: #ffffff;
-  --color-primary-soft: #dbeafe;
+  --color-primary-soft: #eef2fa;
   --color-secondary: #0891b2;
   --color-accent: #ea580c;
 
-  --color-background: #f8fafc;
-  --color-foreground: #0f172a;
+  --color-background: #f2f4f7;
+  --color-foreground: #0b1626;
   --color-card: #ffffff;
-  --color-muted: #f1f5fd;
-  --color-muted-foreground: #475569;
-  --color-border: #e4ecfc;
+  --color-muted: #e9edf3;
+  --color-muted-foreground: #4a5568;
+  --color-border: #e1e6ee;
 
   --color-ok: #16a34a;
   --color-ok-soft: #dcfce7;
@@ -26,7 +29,17 @@
   --color-danger: #dc2626;
   --color-danger-soft: #fee2e2;
 
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  /* Active trip card and the passenger's own stop. */
+  --color-ink: #16244a;
+  --color-on-ink: #ffffff;
+  --color-ink-muted: #c3cce0;
+  --color-highlight: #f2a007;
+  --color-highlight-soft: #fff6e0;
+  --color-highlight-foreground: #4a2a00;
+  --color-late: #8a4b00;
+  --color-late-soft: #fff1db;
+
+  --font-sans: var(--font-onest), ui-sans-serif, system-ui, sans-serif;
 
   --radius-card: 0.875rem;
 }
@@ -44,6 +57,7 @@ body {
   color: var(--color-foreground);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+  font-variant-numeric: tabular-nums;
   overscroll-behavior-y: none;
 }
 
@@ -80,4 +94,18 @@ body {
 .leaflet-top,
 .leaflet-bottom {
   z-index: 0 !important;
+}
+
+/* Live data dot: a soft ring that pulses while positions are fresh. */
+@keyframes live-pulse {
+  from { box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 45%, transparent); }
+  to { box-shadow: 0 0 0 8px transparent; }
+}
+.live-dot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+  background: currentColor;
+  animation: live-pulse 1.6s ease-out infinite;
 }
