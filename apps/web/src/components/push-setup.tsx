@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Button, Card, cx } from "./ui";
+import { Button, cx } from "./ui";
 import { IconBell, IconCheck } from "./icons";
 
 type State = "loading" | "unsupported" | "blocked" | "off" | "on" | "error";
@@ -114,18 +114,18 @@ export function PushSetup({ vapidPublicKey, hint }: { vapidPublicKey: string; hi
   };
 
   return (
-    <Card className="flex flex-col gap-3">
+    <div className="flex flex-col gap-3 rounded-2xl bg-card p-4">
       <div className="flex items-start gap-3">
         <span
           className={cx(
-            "mt-0.5 flex size-9 shrink-0 items-center justify-center rounded-full",
-            state === "on" ? "bg-ok-soft text-green-700" : "bg-muted text-muted-foreground",
+            "flex size-10 shrink-0 items-center justify-center rounded-xl",
+            state === "on" ? "bg-ok-soft text-ok" : "bg-primary-soft text-primary",
           )}
         >
           {state === "on" ? <IconCheck className="size-5" /> : <IconBell className="size-5" />}
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium">Push-уведомления</p>
+          <p className="text-[15px] font-semibold">Уведомления на телефон</p>
           <p className="text-sm text-muted-foreground">{text[state]}</p>
           {message ? <p className="mt-1 text-xs text-muted-foreground">{message}</p> : null}
         </div>
@@ -138,6 +138,6 @@ export function PushSetup({ vapidPublicKey, hint }: { vapidPublicKey: string; hi
           Выключить
         </Button>
       ) : null}
-    </Card>
+    </div>
   );
 }

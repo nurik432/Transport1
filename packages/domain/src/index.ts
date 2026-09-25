@@ -8,3 +8,5 @@ export * from "./analytics";
 export * from "./forecast";
 export * from "./planning";
 export * from "./recommendations";
+export * from "./plural";
+export * from "./walk";

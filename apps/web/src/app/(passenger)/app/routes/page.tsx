@@ -1,10 +1,12 @@
 import Link from "next/link";
-import { localNow } from "@transport/domain";
+import { localNow, parseTimeToMinutes } from "@transport/domain";
 import { requireRole } from "@/lib/auth";
-import { getFavorites, listRoutes } from "@/lib/queries";
-import { MobileHeader } from "@/components/mobile-shell";
-import { Card, EmptyState, RouteBadge, cx } from "@/components/ui";
-import { IconChevronRight, IconClock, IconStar } from "@/components/icons";
+import { getFavorites, getRoutesDayStatus, listRoutes } from "@/lib/queries";
+import { cx } from "@/components/ui";
+import { RoutesList, type RouteListItem } from "./routes-list";
+
+/** A planned trip whose departure is this far in the past is treated as gone. */
+const MISSED_GRACE_MIN = 5;
 
 export default async function RoutesPage({ searchParams }: { searchParams: Promise<{ dir?: string }> }) {
   const user = await requireRole("passenger");
@@ -14,12 +16,45 @@ export default async function RoutesPage({ searchParams }: { searchParams: Promi
 
   const [routes, favorites] = await Promise.all([listRoutes(true), getFavorites(user.id)]);
   const visible = routes.filter((r) => r.direction === direction);
+  const dayStatus = await getRoutesDayStatus(
+    visible.map((r) => r.id),
+    now.date,
+    now.instant,
+  );
+
+  const items: RouteListItem[] = visible.map((route) => {
+    const status = dayStatus.get(route.id);
+    const fromTrips = (status?.upcoming ?? [])
+      .filter((t) => t.status === "in_progress" || parseTimeToMinutes(t.startTime) >= now.minutes - MISSED_GRACE_MIN)
+      .map((t) => ({ time: t.startTime, live: t.status === "in_progress" }));
+    // No trips generated for today yet: fall back to the published schedule.
+    const fromSchedule = route.schedules
+      .filter((s) => s.active && s.daysOfWeek.includes(now.weekday) && parseTimeToMinutes(s.departureTime) >= now.minutes)
+      .map((s) => ({ time: s.departureTime, live: false }));
+    const departures = (fromTrips.length ? fromTrips : fromSchedule).slice(0, 3);
+
+    return {
+      id: route.id,
+      name: route.name,
+      description: route.description,
+      color: route.color,
+      stopCount: route.stops.length,
+      favorite: favorites.routeIds.has(route.id),
+      searchText: [route.name, route.description ?? "", ...route.stops.map((s) => s.name)].join(" ").toLowerCase(),
+      departures,
+      cancelled: status?.cancelled ?? [],
+      changedRecently: status?.changedRecently ?? false,
+    };
+  });
 
   return (
     <>
-      <MobileHeader title="Маршруты" subtitle="Корпоративный транспорт" />
-      <main className="mx-auto flex w-full max-w-md flex-col gap-4 px-4 py-4">
-        <div role="tablist" aria-label="Направление" className="flex gap-1 rounded-lg bg-muted p-1">
+      <header className="mx-auto w-full max-w-md px-5 pt-5 pb-3">
+        <h1 className="text-2xl font-bold tracking-tight">Маршруты</h1>
+      </header>
+
+      <main className="mx-auto flex w-full max-w-md flex-col gap-3 px-4 pb-4">
+        <nav aria-label="Направление" className="grid grid-cols-2 gap-1 rounded-xl bg-muted p-1">
           {(
             [
               { key: "to_work", label: "Утро · на работу" },
@@ -28,46 +63,21 @@ export default async function RoutesPage({ searchParams }: { searchParams: Promi
           ).map((tab) => (
             <Link
               key={tab.key}
-              role="tab"
-              aria-selected={direction === tab.key}
               href={`/app/routes?dir=${tab.key}`}
+              aria-current={direction === tab.key ? "page" : undefined}
               className={cx(
-                "flex-1 rounded-md px-3 py-2 text-center text-sm font-medium transition-colors duration-200",
-                direction === tab.key ? "bg-card text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground",
+                "flex min-h-11 items-center justify-center rounded-lg text-sm transition-colors",
+                direction === tab.key
+                  ? "bg-card font-bold text-foreground shadow-xs"
+                  : "font-medium text-muted-foreground hover:text-foreground",
               )}
             >
               {tab.label}
             </Link>
           ))}
-        </div>
+        </nav>
 
-        {visible.length === 0 ? (
-          <EmptyState title="Маршрутов нет" hint="В этом направлении пока нет активных маршрутов." />
-        ) : (
-          <ul className="flex flex-col gap-2">
-            {visible.map((route) => (
-              <li key={route.id}>
-                <Link href={`/app/routes/${route.id}`} className="block">
-                  <Card className="flex items-center gap-3 transition-colors hover:bg-muted">
-                    <RouteBadge name={route.name} color={route.color} />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">{route.description ?? "Маршрут"}</p>
-                      <p className="flex items-center gap-1 text-xs text-muted-foreground">
-                        <IconClock className="size-3.5" />
-                        {route.schedules.length ? route.schedules.map((s) => s.departureTime).join(" · ") : "Расписание не задано"}
-                      </p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">{route.stops.length} остановок</p>
-                    </div>
-                    {favorites.routeIds.has(route.id) ? (
-                      <IconStar className="size-4 fill-current text-accent" aria-label="В избранном" />
-                    ) : null}
-                    <IconChevronRight className="size-4 text-muted-foreground" />
-                  </Card>
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
+        <RoutesList routes={items} />
       </main>
     </>
   );

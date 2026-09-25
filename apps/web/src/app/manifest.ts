@@ -7,8 +7,8 @@ export default function manifest(): MetadataRoute.Manifest {
     description: "Маршруты, остановки и расписание корпоративного транспорта",
     start_url: "/",
     display: "standalone",
-    background_color: "#f8fafc",
-    theme_color: "#2563eb",
+    background_color: "#f2f4f7",
+    theme_color: "#1f4fd8",
     lang: "ru",
     orientation: "portrait",
     icons: [

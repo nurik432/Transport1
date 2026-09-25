@@ -1,10 +1,10 @@
 import type { Metadata, Viewport } from "next";
-import { Inter } from "next/font/google";
+import { Onest } from "next/font/google";
 import "./globals.css";
 
-const inter = Inter({
+const onest = Onest({
   subsets: ["latin", "cyrillic"],
-  variable: "--font-inter",
+  variable: "--font-onest",
   display: "swap",
 });
 
@@ -16,7 +16,7 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#2563eb",
+  themeColor: "#1f4fd8",
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
@@ -24,7 +24,7 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ru" className={inter.variable}>
+    <html lang="ru" className={onest.variable}>
       <body>{children}</body>
     </html>
   );
