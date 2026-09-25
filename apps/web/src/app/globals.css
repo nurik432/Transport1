@@ -57,6 +57,24 @@
   --color-late: #8a4b00;
   --color-late-soft: #fff1db;
 
+  /* Driving mode. Trips run at 7 in the morning and 6 in the evening; a white
+     screen in the dusk blinds the driver, so the trip screen is dark. These are
+     fixed colours of one screen, not a user theme. */
+  --color-drive-bg: #0b1220;
+  --color-drive-panel: #16213a;
+  --color-drive-raised: #22304f;
+  --color-drive-line: #2a3754;
+  --color-drive-fg: #f4f6fa;
+  --color-drive-muted: #a9b4c8;
+  /* "Прибыл" and "Отправиться" never share a colour: two taps in a row must
+     not skip a stop unnoticed. */
+  --color-drive-arrive: #f2a007;
+  --color-drive-arrive-fg: #1a1200;
+  --color-drive-depart: #3b6bf5;
+  --color-drive-late: #3a2a06;
+  --color-drive-late-fg: #ffc34d;
+  --color-drive-live: #34c778;
+
   --font-sans: var(--font-onest), ui-sans-serif, system-ui, sans-serif;
 
   --radius-card: 0.875rem;

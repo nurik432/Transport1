@@ -12,7 +12,8 @@ import { IconAlert, IconPin } from "@/components/icons";
  * no_fix     — the device can't determine its position (no GPS, OS location off, timeout)
  * send_error — a fix was obtained but the server or network rejected it
  */
-type Status = "starting" | "sending" | "denied" | "no_fix" | "send_error";
+export type TrackerStatus = "starting" | "sending" | "denied" | "no_fix" | "send_error";
+type Status = TrackerStatus;
 
 const SEND_EVERY_MS = 15_000;
 
@@ -29,11 +30,17 @@ export function PositionTracker({
   tripId,
   active,
   onFix,
+  onStatus,
+  banner = true,
 }: {
   tripId: string;
   active: boolean;
   /** every fix, before throttling: the trip map follows the device with it */
   onFix?: (pos: GeolocationPosition) => void;
+  /** lets the driving screen show tracking state in its own header pill */
+  onStatus?: (status: TrackerStatus) => void;
+  /** false: report through onStatus only, and speak up just when something broke */
+  banner?: boolean;
 }) {
   const router = useRouter();
   // Latest callback without restarting the watch when the parent re-renders.
@@ -42,6 +49,13 @@ export function PositionTracker({
     onFixRef.current = onFix;
   });
   const [status, setStatus] = useState<Status>("starting");
+  const onStatusRef = useRef(onStatus);
+  useEffect(() => {
+    onStatusRef.current = onStatus;
+  });
+  useEffect(() => {
+    onStatusRef.current?.(status);
+  }, [status]);
   const [approximate, setApproximate] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [sentAt, setSentAt] = useState<Date | null>(null);
@@ -142,6 +156,9 @@ export function PositionTracker({
   if (!active) return null;
 
   const failed = status === "denied" || status === "no_fix" || status === "send_error";
+  // In driving mode the header pill carries the normal state; only a failure is
+  // worth a banner over the road ahead.
+  if (!banner && !failed) return null;
   const tone = failed
     ? "bg-danger-soft text-red-800"
     : status === "sending"
