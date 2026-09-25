@@ -1,3 +1,5 @@
+import { plural } from "./plural";
+
 /** Company time zone (Khujand, Tajikistan). Fixed UTC+5, no DST. */
 export const TIME_ZONE = "Asia/Dushanbe";
 export const TZ_OFFSET = "+05:00";
@@ -77,4 +79,16 @@ export function formatLocalTime(instant: Date): string {
 /** Format a YYYY-MM-DD as "21 сентября" (ru). */
 export function formatLocalDate(date: string, opts: Intl.DateTimeFormatOptions = { day: "numeric", month: "long" }): string {
   return new Intl.DateTimeFormat("ru-RU", { timeZone: "UTC", ...opts }).format(new Date(`${date}T00:00:00Z`));
+}
+
+/**
+ * A span of minutes the way an administrator says it out loud:
+ * "12 минут", "1 ч 15 мин", "4 ч". Used for "how long ago" and "how late".
+ */
+export function durationLabel(totalMin: number): string {
+  const m = Math.max(0, Math.round(totalMin));
+  if (m < 60) return `${m} ${plural(m, ["минута", "минуты", "минут"])}`;
+  const hours = Math.floor(m / 60);
+  const rest = m % 60;
+  return rest ? `${hours} ч ${rest} мин` : `${hours} ч`;
 }

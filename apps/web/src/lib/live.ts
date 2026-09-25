@@ -7,6 +7,8 @@ import {
   formatEta,
   isDeviating,
   isTrackingMissing,
+  localDateTime,
+  parseTimeToMinutes,
   plannedSpeedOnPath,
   preparePath,
   projectOnPath,
@@ -14,6 +16,7 @@ import {
   trackingState,
   type DeviationSettings,
   type LiveEta,
+  type PathStop,
   type RoutePath,
   type TrackingState,
 } from "@transport/domain";
@@ -256,9 +259,19 @@ export interface LiveVehicle {
   recordedAt: Date;
   tracking: TrackingState;
   bookedTotal: number;
+  /** Seats in the assigned vehicle, null when none is assigned. */
+  capacity: number | null;
+  /** Where the vehicle is heading next, and when it gets there. */
+  nextStopName: string | null;
+  nextStopEtaMin: number | null;
+  /** Minutes behind the timetable at that stop; negative means early. */
+  delayMin: number | null;
 }
 
-/** Latest position of every trip that is running right now. */
+/**
+ * Latest position of every trip that is running right now, with the one thing
+ * the monitoring list is read for: which stop is next and whether it is late.
+ */
 export async function getLiveVehicles(now = new Date()): Promise<LiveVehicle[]> {
   const rows = await db
     .select({
@@ -267,8 +280,11 @@ export async function getLiveVehicles(now = new Date()): Promise<LiveVehicle[]> 
       routeName: routes.name,
       routeColor: routes.color,
       direction: routes.direction,
+      date: trips.date,
       startTime: trips.startTime,
+      versionId: sql<string | null>`coalesce(${trips.routeVersionId}, ${routes.currentVersionId})`,
       vehicleNumber: vehicles.number,
+      capacity: vehicles.capacity,
       driverName: schema.users.name,
       lat: vehiclePositions.lat,
       lng: vehiclePositions.lng,
@@ -293,12 +309,94 @@ export async function getLiveVehicles(now = new Date()): Promise<LiveVehicle[]> 
     )
     .where(eq(trips.status, "in_progress"));
 
-  return rows.map((r) => ({
-    ...r,
-    startTime: r.startTime.slice(0, 5),
-    bookedTotal: Number(r.bookedTotal),
-    tracking: trackingState(r.recordedAt, now, DEFAULT_TRACKING),
-  }));
+  if (!rows.length) return [];
+
+  // Routes repeat between trips, so each shape is built once.
+  const pathCache = new Map<string, RoutePath | null>();
+  const pathOf = async (versionId: string | null): Promise<RoutePath | null> => {
+    if (!versionId) return null;
+    if (!pathCache.has(versionId)) pathCache.set(versionId, await routePath(versionId));
+    return pathCache.get(versionId) ?? null;
+  };
+
+  const stopsDone = await db
+    .select({ tripId: tripStopEvents.tripId, stopId: tripStopEvents.stopId })
+    .from(tripStopEvents)
+    .where(inArray(tripStopEvents.tripId, rows.map((r) => r.tripId)));
+  const doneByTrip = new Map<string, Set<string>>();
+  for (const e of stopsDone) {
+    const set = doneByTrip.get(e.tripId);
+    if (set) set.add(e.stopId);
+    else doneByTrip.set(e.tripId, new Set([e.stopId]));
+  }
+
+  const out: LiveVehicle[] = [];
+  const nextStopIds = new Set<string>();
+  const pending: { row: (typeof rows)[number]; next: PathStop | null; eta: LiveEta | null }[] = [];
+
+  for (const r of rows) {
+    const path = await pathOf(r.versionId);
+    let next: PathStop | null = null;
+    let eta: LiveEta | null = null;
+
+    if (path) {
+      const position = { lat: r.lat, lng: r.lng, recordedAt: r.recordedAt, speedKph: r.speedKph };
+      const projection = projectOnPath(position, path);
+      const fallbackSpeed = plannedSpeedOnPath(path);
+      const done = doneByTrip.get(r.tripId) ?? new Set<string>();
+      for (const stop of [...path.stops].sort((a, b) => a.seq - b.seq)) {
+        if (done.has(stop.stopId)) continue;
+        const candidate = etaOnPath({
+          position,
+          path,
+          projection,
+          targetStopId: stop.stopId,
+          now,
+          fallbackSpeedKph: fallbackSpeed,
+        });
+        if (!candidate || candidate.passed) continue;
+        next = stop;
+        eta = candidate;
+        break;
+      }
+      if (next) nextStopIds.add(next.stopId);
+    }
+    pending.push({ row: r, next, eta });
+  }
+
+  const names = nextStopIds.size
+    ? await db.select({ id: stops.id, name: stops.name }).from(stops).where(inArray(stops.id, [...nextStopIds]))
+    : [];
+  const nameById = new Map(names.map((s) => [s.id, s.name]));
+
+  for (const { row: r, next, eta } of pending) {
+    // Scheduled arrival at that stop: departure plus the stop offset.
+    const plannedAt =
+      next === null ? null : localDateTime(r.date, parseTimeToMinutes(r.startTime.slice(0, 5)) + next.offsetMin);
+    out.push({
+      tripId: r.tripId,
+      routeId: r.routeId,
+      routeName: r.routeName,
+      routeColor: r.routeColor,
+      direction: r.direction,
+      startTime: r.startTime.slice(0, 5),
+      vehicleNumber: r.vehicleNumber,
+      capacity: r.capacity ?? null,
+      driverName: r.driverName,
+      lat: r.lat,
+      lng: r.lng,
+      speedKph: r.speedKph,
+      offRouteM: r.offRouteM,
+      recordedAt: r.recordedAt,
+      tracking: trackingState(r.recordedAt, now, DEFAULT_TRACKING),
+      bookedTotal: Number(r.bookedTotal),
+      nextStopName: next ? (nameById.get(next.stopId) ?? null) : null,
+      nextStopEtaMin: eta ? eta.minutesFromNow : null,
+      delayMin: eta && plannedAt ? Math.round((eta.arrivalAt.getTime() - plannedAt.getTime()) / 60_000) : null,
+    });
+  }
+
+  return out;
 }
 
 export interface TripLive {
@@ -388,10 +486,22 @@ export type LiveSignalKind = "off_route" | "no_tracking" | "not_started";
 export interface LiveSignal {
   kind: LiveSignalKind;
   tripId: string;
+  routeId: string;
   routeName: string;
+  routeColor: string;
   startTime: string;
   driverName: string | null;
+  /** Phone of the assigned driver, so the card can offer to call. */
+  driverPhone: string | null;
   vehicleNumber: string | null;
+  /** Passengers who booked this trip. */
+  booked: number;
+  /** Minutes since the trip should have departed; only for "not_started". */
+  lateMin: number | null;
+  /** Distance from the route line in metres; only for "off_route". */
+  offRouteM: number | null;
+  /** Seconds since the last GPS point, null when there is none. */
+  silentSec: number | null;
   title: string;
   details: string;
 }
@@ -407,12 +517,16 @@ export async function getLiveSignals(now = new Date(), today?: string): Promise<
   const active = await db
     .select({
       tripId: trips.id,
+      routeId: routes.id,
       routeName: routes.name,
+      routeColor: routes.color,
       startTime: trips.startTime,
       status: trips.status,
       startedAt: trips.startedAt,
       driverName: schema.users.name,
+      driverPhone: schema.users.phone,
       vehicleNumber: vehicles.number,
+      booked: sql<number>`(select count(*) from ${passengerTrips} pt where pt.trip_id = ${trips.id} and pt.status <> 'cancelled')`,
     })
     .from(trips)
     .innerJoin(routes, eq(routes.id, trips.routeId))
@@ -445,29 +559,38 @@ export async function getLiveSignals(now = new Date(), today?: string): Promise<
     const lastAt = trail.at(-1)?.recordedAt ?? null;
     const time = t.startTime.slice(0, 5);
     const who = [t.routeName, time].join(" · ");
+    const silentSec = lastAt ? Math.round((now.getTime() - lastAt.getTime()) / 1000) : null;
+    const common = {
+      tripId: t.tripId,
+      routeId: t.routeId,
+      routeName: t.routeName,
+      routeColor: t.routeColor,
+      startTime: time,
+      driverName: t.driverName,
+      driverPhone: t.driverPhone,
+      vehicleNumber: t.vehicleNumber,
+      booked: Number(t.booked),
+      silentSec,
+    };
 
     if (t.status === "in_progress") {
       if (isDeviating(trail.map((p) => p.offRouteM), settingsValue)) {
         const lastOff = trail.at(-1)?.offRouteM ?? 0;
         signals.push({
+          ...common,
           kind: "off_route",
-          tripId: t.tripId,
-          routeName: t.routeName,
-          startTime: time,
-          driverName: t.driverName,
-          vehicleNumber: t.vehicleNumber,
+          lateMin: null,
+          offRouteM: Math.round(lastOff),
           title: `Отклонение от маршрута: ${who}`,
           details: `Транспорт находится в ${Math.round(lastOff)} м от линии маршрута${t.driverName ? `, водитель ${t.driverName}` : ""}.`,
         });
       }
       if (isTrackingMissing(t.startedAt, lastAt, now, settingsValue)) {
         signals.push({
+          ...common,
           kind: "no_tracking",
-          tripId: t.tripId,
-          routeName: t.routeName,
-          startTime: time,
-          driverName: t.driverName,
-          vehicleNumber: t.vehicleNumber,
+          lateMin: null,
+          offRouteM: null,
           title: `Нет данных о транспорте: ${who}`,
           details: lastAt
             ? `Последняя точка получена ${Math.round((now.getTime() - lastAt.getTime()) / 60_000)} мин назад.`
@@ -482,12 +605,10 @@ export async function getLiveSignals(now = new Date(), today?: string): Promise<
       const lateMin = (now.getTime() - due.getTime()) / 60_000;
       if (lateMin > settingsValue.missingAfterMin) {
         signals.push({
+          ...common,
           kind: "not_started",
-          tripId: t.tripId,
-          routeName: t.routeName,
-          startTime: time,
-          driverName: t.driverName,
-          vehicleNumber: t.vehicleNumber,
+          lateMin: Math.round(lateMin),
+          offRouteM: null,
           title: `Рейс не начат: ${who}`,
           details: `Отправление было ${Math.round(lateMin)} мин назад, водитель не начал рейс${t.vehicleNumber ? ` (${t.vehicleNumber})` : ""}.`,
         });

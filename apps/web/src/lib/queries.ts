@@ -824,24 +824,35 @@ export interface DashboardCounts {
   passengers: number;
   activePassengers: number;
   tripsToday: number;
+  tripsInProgressToday: number;
   tripsCompletedToday: number;
+  tripsCancelledToday: number;
+  /** Distinct passengers who booked a seat for today. */
+  bookedToday: number;
 }
 
 export async function getDashboardCounts(from: string, today: string): Promise<DashboardCounts> {
-  const [routeCount, vehicleCount, driverCount, passengerCount, activeCount, todayTrips] = await Promise.all([
-    db.select({ n: count() }).from(routes).where(eq(routes.status, "active")),
-    db.select({ n: count() }).from(vehicles).where(ne(vehicles.status, "inactive")),
-    db.select({ n: count() }).from(drivers).where(eq(drivers.status, "active")),
-    db.select({ n: count() }).from(passengers),
-    db
-      .select({ n: sql<number>`count(distinct ${passengerTrips.passengerId})` })
-      .from(passengerTrips)
-      .innerJoin(trips, eq(trips.id, passengerTrips.tripId))
-      .where(and(gte(trips.date, from), ne(passengerTrips.status, "cancelled"))),
-    db.select({ status: trips.status, n: count() }).from(trips).where(eq(trips.date, today)).groupBy(trips.status),
-  ]);
+  const [routeCount, vehicleCount, driverCount, passengerCount, activeCount, todayTrips, bookedToday] =
+    await Promise.all([
+      db.select({ n: count() }).from(routes).where(eq(routes.status, "active")),
+      db.select({ n: count() }).from(vehicles).where(ne(vehicles.status, "inactive")),
+      db.select({ n: count() }).from(drivers).where(eq(drivers.status, "active")),
+      db.select({ n: count() }).from(passengers),
+      db
+        .select({ n: sql<number>`count(distinct ${passengerTrips.passengerId})` })
+        .from(passengerTrips)
+        .innerJoin(trips, eq(trips.id, passengerTrips.tripId))
+        .where(and(gte(trips.date, from), ne(passengerTrips.status, "cancelled"))),
+      db.select({ status: trips.status, n: count() }).from(trips).where(eq(trips.date, today)).groupBy(trips.status),
+      db
+        .select({ n: sql<number>`count(distinct ${passengerTrips.passengerId})` })
+        .from(passengerTrips)
+        .innerJoin(trips, eq(trips.id, passengerTrips.tripId))
+        .where(and(eq(trips.date, today), ne(passengerTrips.status, "cancelled"))),
+    ]);
 
   const tripsToday = todayTrips.reduce((s, r) => s + Number(r.n), 0);
+  const byStatus = (status: string) => Number(todayTrips.find((t) => t.status === status)?.n ?? 0);
   return {
     routes: Number(routeCount[0]?.n ?? 0),
     vehicles: Number(vehicleCount[0]?.n ?? 0),
@@ -849,7 +860,10 @@ export async function getDashboardCounts(from: string, today: string): Promise<D
     passengers: Number(passengerCount[0]?.n ?? 0),
     activePassengers: Number(activeCount[0]?.n ?? 0),
     tripsToday,
-    tripsCompletedToday: Number(todayTrips.find((t) => t.status === "completed")?.n ?? 0),
+    tripsInProgressToday: byStatus("in_progress"),
+    tripsCompletedToday: byStatus("completed"),
+    tripsCancelledToday: byStatus("cancelled"),
+    bookedToday: Number(bookedToday[0]?.n ?? 0),
   };
 }
 

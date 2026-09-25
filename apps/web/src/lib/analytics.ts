@@ -31,6 +31,18 @@ export interface RouteAnalytics {
   byStop: StopLoadStats[];
   signals: RouteSignal[];
   records: TripLoadRecord[];
+  /** Raw per-trip stop counts, so a screen can narrow them to one departure. */
+  stopRecords: StopDemandByTrip[];
+}
+
+/** One stop of one trip: how many declared it and how many actually got on. */
+export interface StopDemandByTrip {
+  tripId: string;
+  stopId: string;
+  stopName: string;
+  seq: number;
+  boarded: number;
+  demand: number;
 }
 
 export interface AnalyticsResult {
@@ -92,6 +104,7 @@ export async function buildAnalytics(days = DEFAULT_WINDOW_DAYS, routeId?: strin
       byWeekday,
       byStop,
       records: rec,
+      stopRecords: stopByRoute.get(route.id) ?? [],
       signals: routeSignals({ routeId: route.id, routeName: route.name, capacity, stats, byTime, byStop }, thresholds),
     };
   });
@@ -109,3 +122,28 @@ export const DIRECTION_LABEL: Record<"to_work" | "from_work", string> = {
   to_work: "Утро · на работу",
   from_work: "Вечер · домой",
 };
+
+/** Same thing in one word, for a title or a table cell. */
+export const DIRECTION_SHORT: Record<"to_work" | "from_work", string> = {
+  to_work: "утро",
+  from_work: "вечер",
+};
+
+/** The analysis window in the words an administrator would use for it. */
+export function windowLabel(days: number): string {
+  if (days % 7 === 0) {
+    const weeks = days / 7;
+    return weeks === 1 ? "неделя" : `${weeks} ${weeks < 5 ? "недели" : "недель"}`;
+  }
+  return `${days} ${days % 10 === 1 && days % 100 !== 11 ? "день" : "дней"}`;
+}
+
+/**
+ * Route line under its number: the description plus the direction, without
+ * repeating a direction the description already spells out.
+ */
+export function routeSubtitle(description: string | null, direction: "to_work" | "from_work"): string {
+  const short = DIRECTION_SHORT[direction];
+  if (!description) return short;
+  return description.toLowerCase().includes(short) ? description : `${description} · ${short}`;
+}

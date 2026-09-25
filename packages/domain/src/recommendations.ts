@@ -1,6 +1,7 @@
 import type { BucketStats, StopLoadStats } from "./analytics";
 import type { LoadThresholds, RouteLoadStats } from "./load";
 import { DEFAULT_THRESHOLDS } from "./load";
+import { formatMinutes, parseTimeToMinutes } from "./time";
 
 export type SignalKind = "overload" | "low_load";
 
@@ -13,6 +14,24 @@ export interface RouteSignal {
   /** Suggested actions for the administrator (never applied automatically). */
   suggestions: string[];
   severity: "high" | "medium" | "low";
+  /** Busiest departure of the route, "HH:MM"; null when nothing stands out. */
+  peakTime: string | null;
+  /** Departure that would take part of the peak load, "HH:MM". */
+  reliefTime: string | null;
+  /** Average passengers per trip at the peak departure. */
+  peakPassengers: number | null;
+}
+
+/** Minutes a relief departure is placed ahead of the peak one. */
+export const RELIEF_GAP_MIN = 15;
+
+/**
+ * A departure placed shortly before an overloaded one, so part of the queue
+ * leaves earlier. Pure clock arithmetic: the administrator decides whether the
+ * result fits the schedule.
+ */
+export function reliefDeparture(peakTime: string, gapMin: number = RELIEF_GAP_MIN): string {
+  return formatMinutes(Math.max(0, parseTimeToMinutes(peakTime) - gapMin));
 }
 
 export interface RouteSignalInput {
@@ -47,6 +66,9 @@ export function routeSignals(input: RouteSignalInput, thresholds: LoadThresholds
       routeId,
       routeName,
       severity: "high",
+      peakTime: firstPeak?.label ?? null,
+      reliefTime: firstPeak ? reliefDeparture(firstPeak.label) : null,
+      peakPassengers: firstPeak?.avgPassengers ?? null,
       title: `Маршрут ${routeName}: перегрузка`,
       details:
         `Средняя загрузка ${stats.avgPct}%, максимальная ${stats.maxPct}% ` +
@@ -72,6 +94,9 @@ export function routeSignals(input: RouteSignalInput, thresholds: LoadThresholds
       routeId,
       routeName,
       severity: "medium",
+      peakTime: null,
+      reliefTime: null,
+      peakPassengers: null,
       title: `Маршрут ${routeName}: низкая загрузка`,
       details: `Средняя загрузка ${stats.avgPct}% (в среднем ${stats.avgPassengers} чел. при вместимости ${capacity ?? "—"}) за ${stats.trips} рейсов.`,
       suggestions: [

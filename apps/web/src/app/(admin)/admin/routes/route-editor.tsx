@@ -92,6 +92,7 @@ export function RouteEditor({
   versions = [],
   savedPath = null,
   savedDistanceM = null,
+  suggestedDeparture = null,
 }: {
   initial: RouteEditorValue;
   stopOptions: StopOption[];
@@ -99,11 +100,13 @@ export function RouteEditor({
   /** geometry of the version being edited, shown until the shape is changed */
   savedPath?: [number, number][] | null;
   savedDistanceM?: number | null;
+  /** departure proposed by the analysis screen, pre-filled in the schedule */
+  suggestedDeparture?: string | null;
 }) {
   const router = useRouter();
   const [value, setValue] = useState<RouteEditorValue>(initial);
   const [versionNote, setVersionNote] = useState("");
-  const [newDeparture, setNewDeparture] = useState("");
+  const [newDeparture, setNewDeparture] = useState(suggestedDeparture ?? "");
   const [pendingPoint, setPendingPoint] = useState<{ lat: number; lng: number } | null>(null);
   const [pendingName, setPendingName] = useState("");
   // Start from the saved geometry; any change to the shape clears it.
@@ -494,8 +497,14 @@ export function RouteEditor({
       </Card>
 
       {/* ------------------------------------------------------------ schedule */}
-      <Card>
+      <Card id="schedule" className={suggestedDeparture ? "scroll-mt-4 ring-2 ring-primary" : "scroll-mt-4"}>
         <SectionTitle>Расписание отправлений</SectionTitle>
+        {suggestedDeparture && !value.departures.includes(suggestedDeparture) ? (
+          <p className="mb-3 rounded-lg bg-primary-soft px-3 py-2 text-sm text-primary">
+            Аналитика предлагает добавить отправление {suggestedDeparture}: время уже подставлено ниже, нажмите
+            «Добавить время», а затем сохраните маршрут.
+          </p>
+        ) : null}
 
         <div className="mb-4 flex flex-wrap items-center gap-2">
           {value.departures.length === 0 ? (

@@ -6,10 +6,13 @@
  * Passenger screens read like a stop departure board: the ETA is the largest
  * thing on screen, "ink" marks an active trip, "highlight" marks the
  * passenger's own stop.
+ * Admin screens answer "where is the problem and what do I press": status is
+ * carried by pills and borders, never by the length of a bar alone.
  */
 
 @theme {
   --color-primary: #1f4fd8;
+  --color-primary-hover: #163ba6;
   --color-on-primary: #ffffff;
   --color-primary-soft: #eef2fa;
   --color-secondary: #0891b2;
@@ -22,17 +25,32 @@
   --color-muted-foreground: #4a5568;
   --color-border: #e1e6ee;
 
-  --color-ok: #16a34a;
-  --color-ok-soft: #dcfce7;
-  --color-warn: #ca8a04;
-  --color-warn-soft: #fef9c3;
-  --color-danger: #dc2626;
-  --color-danger-soft: #fee2e2;
+  /* Secondary body copy, uppercase group labels, row dividers, chart axis. */
+  --color-body: #334155;
+  --color-subtle: #6b7485;
+  --color-divider: #edf0f5;
+  --color-axis: #c9d0db;
+
+  /* Status: each tone has a fill, a soft background, ink for text and a border
+     used as an inset ring on cards that need attention. */
+  --color-ok: #146c33;
+  --color-ok-soft: #e6f4ea;
+  --color-warn: #c47f00;
+  --color-warn-soft: #fff1db;
+  --color-warn-foreground: #8a4b00;
+  --color-warn-border: #f6d9a6;
+  --color-danger: #c62828;
+  --color-danger-soft: #fdecea;
+  --color-danger-foreground: #a3261d;
+  --color-danger-border: #f4c7c3;
+  /* Row background for a trip that still needs an assignment. */
+  --color-attention: #fffbf2;
 
   /* Active trip card and the passenger's own stop. */
   --color-ink: #16244a;
   --color-on-ink: #ffffff;
   --color-ink-muted: #c3cce0;
+  --color-ink-border: #4a5b88;
   --color-highlight: #f2a007;
   --color-highlight-soft: #fff6e0;
   --color-highlight-foreground: #4a2a00;
@@ -42,6 +60,9 @@
   --font-sans: var(--font-onest), ui-sans-serif, system-ui, sans-serif;
 
   --radius-card: 0.875rem;
+  /* Admin panels and tables sit on a plain background, so they carry a larger
+     radius instead of a border. */
+  --radius-panel: 1rem;
 }
 
 :root {

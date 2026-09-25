@@ -174,3 +174,56 @@ export const IconClose = (p: SVGProps<SVGSVGElement>) => (
     <path d="M18 6 6 18M6 6l12 12" />
   </Base>
 );
+
+/** Live monitoring: a moving dot watched from a fixed point. */
+export const IconRadar = (p: SVGProps<SVGSVGElement>) => (
+  <Base {...p}>
+    <path d="M19.1 4.9a10 10 0 1 1-14.2 0" />
+    <path d="M16.2 7.8a6 6 0 1 0-8.4 8.5" />
+    <path d="M12 12 19 5" />
+    <circle cx="12" cy="12" r="1.4" />
+  </Base>
+);
+
+/** Trips of a day. */
+export const IconCalendar = (p: SVGProps<SVGSVGElement>) => (
+  <Base {...p}>
+    <rect x="3" y="5" width="18" height="16" rx="2.5" />
+    <path d="M3 10h18M8 3v4M16 3v4" />
+  </Base>
+);
+
+/** A vehicle in the fleet list, distinct from the trips icon. */
+export const IconTruck = (p: SVGProps<SVGSVGElement>) => (
+  <Base {...p}>
+    <path d="M3 16V7a1 1 0 0 1 1-1h9v10" />
+    <path d="M13 9h4l4 4v3h-2" />
+    <circle cx="7.5" cy="17.5" r="1.8" />
+    <circle cx="17" cy="17.5" r="1.8" />
+    <path d="M9.3 17.5h5.9M3 17.5h1.7" />
+  </Base>
+);
+
+/** Forecast: where the line is heading. */
+export const IconTrend = (p: SVGProps<SVGSVGElement>) => (
+  <Base {...p}>
+    <path d="M3 17.5 9 11l4 4 8-8" />
+    <path d="M15 7h6v6" />
+  </Base>
+);
+
+/** A stop sign post: the place where people wait. */
+export const IconStop = (p: SVGProps<SVGSVGElement>) => (
+  <Base {...p}>
+    <path d="M12 21v-9" />
+    <path d="M12 4h7.5l-1.8 2.6L19.5 9H12z" />
+    <path d="M9 21h6" />
+  </Base>
+);
+
+/** Phone handset, for calling a driver from an attention card. */
+export const IconPhone = (p: SVGProps<SVGSVGElement>) => (
+  <Base {...p}>
+    <path d="M6.5 3.5h3l1.5 4-2 1.5a12 12 0 0 0 6 6l1.5-2 4 1.5v3a2 2 0 0 1-2.2 2A16.5 16.5 0 0 1 4.5 5.7 2 2 0 0 1 6.5 3.5Z" />
+  </Base>
+);

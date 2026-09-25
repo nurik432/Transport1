@@ -5,9 +5,17 @@ import { AdminMain, PageHeader } from "@/components/admin-ui";
 import { LinkButton } from "@/components/ui";
 import { RouteEditor } from "../route-editor";
 
-export default async function EditRoutePage({ params }: { params: Promise<{ id: string }> }) {
+export default async function EditRoutePage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ departure?: string }>;
+}) {
   await requireRole("admin");
-  const { id } = await params;
+  const [{ id }, { departure }] = await Promise.all([params, searchParams]);
+  // The analysis screen links here with the departure it suggests adding.
+  const suggestedDeparture = /^\d{2}:\d{2}$/.test(departure ?? "") ? departure! : null;
 
   const [route, allStops, versions] = await Promise.all([getRoute(id), listStops(), getRouteVersions(id)]);
   if (!route) notFound();
@@ -30,6 +38,7 @@ export default async function EditRoutePage({ params }: { params: Promise<{ id: 
       />
 
       <RouteEditor
+        suggestedDeparture={suggestedDeparture}
         stopOptions={options}
         savedPath={route.path}
         savedDistanceM={route.pathDistanceM}
