@@ -1,14 +1,20 @@
+import { Suspense } from "react";
+import { localNow } from "@transport/domain";
 import { requireRole } from "@/lib/auth";
 import { getLiveSignals, getLiveVehicles } from "@/lib/live";
 import { listRoutes } from "@/lib/queries";
-import { AdminMain, PageHeader } from "@/components/admin-ui";
+
 import { LiveBoard } from "./live-board";
 
 export default async function LivePage() {
   await requireRole("admin");
 
-  const now = new Date();
-  const [routes, vehicles, signals] = await Promise.all([listRoutes(true), getLiveVehicles(now), getLiveSignals(now)]);
+  const now = localNow();
+  const [routes, vehicles, signals] = await Promise.all([
+    listRoutes(true),
+    getLiveVehicles(now.instant),
+    getLiveSignals(now.instant, now.date),
+  ]);
 
   // One marker per stop, one line per route.
   const stopById = new Map<string, { id: string; name: string; lat: number; lng: number }>();
@@ -19,11 +25,7 @@ export default async function LivePage() {
   }
 
   return (
-    <AdminMain>
-      <PageHeader
-        title="Мониторинг"
-        description="Положение транспорта в реальном времени, отклонения от маршрута и рейсы без данных."
-      />
+    <Suspense>
       <LiveBoard
         stops={[...stopById.values()]}
         lines={routes
@@ -37,6 +39,6 @@ export default async function LivePage() {
         initialVehicles={vehicles.map((v) => ({ ...v, recordedAt: v.recordedAt.toISOString() }))}
         initialSignals={signals}
       />
-    </AdminMain>
+    </Suspense>
   );
 }
