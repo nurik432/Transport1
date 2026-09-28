@@ -8,6 +8,8 @@
     "test": "pnpm -r test",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
+    "docs:faq": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/generate-faq.ts",
+    "docs:faq:check": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/generate-faq.ts --check",
     "db:up": "docker compose up -d db",
     "db:down": "docker compose down",
     "db:generate": "pnpm --filter @transport/db generate",

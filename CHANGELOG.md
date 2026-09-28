@@ -211,3 +211,4 @@ Mechanical record only - see git history for diffs and rationale._
 - 2026-09-25 17:03  Write  C:/Users/fid926309449/transport1/docs/03-faq.md
 - 2026-09-28 08:14  Write  C:/Users/fid926309449/transport1/apps/web/src/lib/faq.ts
 - 2026-09-28 08:15  Write  C:/Users/fid926309449/transport1/apps/web/src/components/faq-list.tsx
+- 2026-09-28 08:34  Write  C:/Users/fid926309449/transport1/scripts/generate-faq.ts
