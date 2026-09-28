@@ -1,54 +1,51 @@
-import { eq } from "drizzle-orm";
 import { requireRole } from "@/lib/auth";
-import { db, schema } from "@/lib/db";
-import { listStops } from "@/lib/queries";
+import { listStopUsage, listStops } from "@/lib/queries";
 import { AdminMain, Cell, PageHeader, Row, Table } from "@/components/admin-ui";
-import { MapPanel } from "@/components/map";
-import { StopRowActions, StopsEditor } from "./stops-editor";
+import { StopRowActions } from "./stops-editor";
+import { StopsWorkspace } from "./stops-workspace";
 
-export default async function StopsPage() {
+export default async function StopsPage({ searchParams }: { searchParams: Promise<{ stop?: string }> }) {
   await requireRole("admin");
-  const stops = await listStops();
-
-  const usage = await db
-    .select({ stopId: schema.routeStops.stopId, routeName: schema.routes.name })
-    .from(schema.routeStops)
-    .innerJoin(schema.routes, eq(schema.routes.id, schema.routeStops.routeId));
-
-  const byStop = new Map<string, string[]>();
-  for (const u of usage) {
-    const list = byStop.get(u.stopId);
-    if (list && !list.includes(u.routeName)) list.push(u.routeName);
-    else if (!list) byStop.set(u.stopId, [u.routeName]);
-  }
+  // The table rows link here with ?stop=<id>, the same way the trips and live
+  // screens carry their selection, so a stop can be shared by link.
+  const [{ stop }, stops, usage] = await Promise.all([searchParams, listStops(), listStopUsage()]);
+  const selectedId = stops.some((s) => s.id === stop) ? (stop as string) : null;
 
   return (
     <AdminMain>
       <PageHeader
         title="Остановки"
-        description="Точки посадки и высадки. Координаты используются для поиска ближайшей остановки пассажиром."
+        description="Остановку ставят на карте: найдите место по названию или нажмите на карту. Координаты подставятся сами."
       />
 
-      <div className="mb-6 grid gap-6 lg:grid-cols-[2fr_3fr]">
-        <StopsEditor />
-        <MapPanel
-          className="h-96 w-full rounded-[--radius-card] border border-border"
-          stops={stops.map((s) => ({ id: s.id, name: s.name, lat: s.lat, lng: s.lng, note: s.address ?? undefined }))}
+      <div id="stop-workspace" className="mb-6 scroll-mt-4">
+        <StopsWorkspace
+          key={selectedId ?? "new"}
+          stops={stops.map((s) => ({
+            id: s.id,
+            name: s.name,
+            lat: s.lat,
+            lng: s.lng,
+            address: s.address,
+            status: s.status,
+          }))}
+          usage={Object.fromEntries(usage)}
+          selectedId={selectedId}
         />
       </div>
 
       <Table head={["Название", "Адрес", "Координаты", "Маршруты", "Статус", ""]}>
         {stops.map((s) => (
-          <Row key={s.id}>
+          <Row key={s.id} tone={s.id === selectedId ? "attention" : "plain"}>
             <Cell className="font-medium">{s.name}</Cell>
             <Cell className="text-muted-foreground">{s.address ?? "—"}</Cell>
             <Cell className="text-muted-foreground tabular-nums">
               {s.lat.toFixed(4)}, {s.lng.toFixed(4)}
             </Cell>
-            <Cell className="text-muted-foreground">{byStop.get(s.id)?.join(", ") ?? "не используется"}</Cell>
+            <Cell className="text-muted-foreground">{usage.get(s.id)?.join(", ") ?? "не используется"}</Cell>
             <Cell>{s.status === "active" ? "Активна" : "Отключена"}</Cell>
             <Cell>
-              <StopRowActions id={s.id} name={s.name} lat={s.lat} lng={s.lng} address={s.address ?? ""} status={s.status} />
+              <StopRowActions id={s.id} name={s.name} />
             </Cell>
           </Row>
         ))}

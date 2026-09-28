@@ -1,7 +1,7 @@
 import "server-only";
 import { cache } from "react";
-import { and, count, eq, isNull, or } from "drizzle-orm";
-import { durationLabel, localNow, plural } from "@transport/domain";
+import { and, count, eq, isNull, or, sql } from "drizzle-orm";
+import { addDays, durationLabel, localNow, plural } from "@transport/domain";
 import { db, schema } from "./db";
 import { DIRECTION_SHORT, buildAnalytics } from "./analytics";
 import { getLiveSignals } from "./live";
@@ -24,7 +24,13 @@ export interface AttentionAction {
   external?: boolean;
 }
 
-export type AttentionKind = "overload" | "not_started" | "off_route" | "no_tracking" | "unassigned";
+export type AttentionKind =
+  | "overload"
+  | "not_started"
+  | "off_route"
+  | "no_tracking"
+  | "unassigned"
+  | "route_not_running";
 
 export interface AttentionItem {
   id: string;
@@ -56,15 +62,57 @@ async function countUnassignedToday(date: string): Promise<number> {
 }
 
 /**
+ * Active routes that carry nobody: no schedule at all, or a schedule that has
+ * not been turned into trips.
+ *
+ * This is the quietest failure in the system — everything looks configured and
+ * the passenger simply sees nothing — so it has to be surfaced rather than
+ * waited for as a complaint.
+ */
+async function findRoutesNotRunning(
+  fromDate: string,
+  toDate: string,
+): Promise<{ routeId: string; routeName: string; direction: "to_work" | "from_work"; departures: number }[]> {
+  const rows = await db
+    .select({
+      routeId: schema.routes.id,
+      routeName: schema.routes.name,
+      direction: schema.routes.direction,
+      departures: sql<number>`(
+        select count(*) from ${schema.routeSchedules}
+        where ${schema.routeSchedules.routeId} = ${schema.routes.id} and ${schema.routeSchedules.active}
+      )`,
+      trips: sql<number>`(
+        select count(*) from ${schema.trips}
+        where ${schema.trips.routeId} = ${schema.routes.id}
+          and ${schema.trips.status} = 'planned'
+          and ${schema.trips.date} between ${fromDate} and ${toDate}
+      )`,
+    })
+    .from(schema.routes)
+    .where(eq(schema.routes.status, "active"));
+
+  return rows
+    .filter((r) => Number(r.departures) === 0 || Number(r.trips) === 0)
+    .map((r) => ({
+      routeId: r.routeId,
+      routeName: r.routeName,
+      direction: r.direction,
+      departures: Number(r.departures),
+    }));
+}
+
+/**
  * Everything the administrator has to decide about right now, most urgent first.
  * Cached per request: the layout uses the length, the dashboard uses the items.
  */
 export const getAttention = cache(async (): Promise<AttentionItem[]> => {
   const now = localNow();
-  const [analytics, signals, unassigned] = await Promise.all([
+  const [analytics, signals, unassigned, notRunning] = await Promise.all([
     buildAnalytics(),
     getLiveSignals(now.instant, now.date),
     countUnassignedToday(now.date),
+    findRoutesNotRunning(now.date, addDays(now.date, 13)),
   ]);
 
   const items: AttentionItem[] = [];
@@ -161,6 +209,24 @@ export const getAttention = cache(async (): Promise<AttentionItem[]> => {
       title: `${unassigned} ${plural(unassigned, ["рейс", "рейса", "рейсов"])} без транспорта или водителя`,
       details: "Рейсы на сегодня, которым ещё не назначен транспорт или водитель.",
       actions: [{ label: "Назначить", href: `/admin/trips?date=${now.date}&filter=unassigned`, primary: true }],
+    });
+  }
+
+  // 4. Active routes that will not carry anybody: no schedule, or no trips made
+  //    from it. Nothing else reports this, and the passenger just sees nothing.
+  for (const route of notRunning) {
+    const where = `${route.routeName} ${DIRECTION_SHORT[route.direction]}`;
+    items.push({
+      id: `route_not_running:${route.routeId}`,
+      kind: "route_not_running",
+      tone: "warn",
+      tag: "Не поедет",
+      title: `${where}: маршрут активен, но рейсов нет`,
+      details:
+        route.departures === 0
+          ? "В расписании нет ни одного отправления, поэтому рейсы не создаются."
+          : "Расписание есть, но рейсы на ближайшие две недели не сгенерированы.",
+      actions: [{ label: "Открыть маршрут", href: `/admin/routes/${route.routeId}`, primary: true }],
     });
   }
 

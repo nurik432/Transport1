@@ -296,6 +296,67 @@ export async function listStops() {
   return db.select().from(stops).orderBy(asc(stops.name));
 }
 
+/** Whether the fleet has any usable vehicle. Needed before a route has trips. */
+export async function hasActiveVehicles(): Promise<boolean> {
+  const rows = await db.select({ n: sql<number>`count(*)` }).from(vehicles).where(eq(vehicles.status, "active"));
+  return Number(rows[0]?.n ?? 0) > 0;
+}
+
+/**
+ * The facts the readiness checklist cannot work out in the browser: whether the
+ * route actually has trips, whether anyone is assigned to them, and whether the
+ * fleet has a vehicle at all.
+ */
+export async function getRouteReadinessFacts(
+  routeId: string,
+  fromDate: string,
+): Promise<{ plannedTripCount: number; unassignedTripCount: number; hasVehicles: boolean }> {
+  const [tripRows, vehicleRows] = await Promise.all([
+    db
+      .select({
+        planned: sql<number>`count(*)`,
+        unassigned: sql<number>`count(*) filter (where ${trips.vehicleId} is null or ${trips.driverId} is null)`,
+      })
+      .from(trips)
+      .where(and(eq(trips.routeId, routeId), eq(trips.status, "planned"), gte(trips.date, fromDate))),
+    db
+      .select({ n: sql<number>`count(*)` })
+      .from(vehicles)
+      .where(eq(vehicles.status, "active")),
+  ]);
+
+  return {
+    plannedTripCount: Number(tripRows[0]?.planned ?? 0),
+    unassignedTripCount: Number(tripRows[0]?.unassigned ?? 0),
+    hasVehicles: Number(vehicleRows[0]?.n ?? 0) > 0,
+  };
+}
+
+/**
+ * Which routes use each stop, by stop id.
+ * A stop belongs to the directory, not to one route, so moving or renaming it
+ * changes every route it appears in — the administrator has to see that list
+ * before agreeing to the change, not after.
+ */
+export async function listStopUsage(): Promise<Map<string, string[]>> {
+  const rows = await db
+    .selectDistinct({ stopId: routeStops.stopId, routeName: routes.name })
+    .from(routeStops)
+    .innerJoin(routes, eq(routes.id, routeStops.routeId))
+    .orderBy(asc(routes.name));
+
+  const byStop = new Map<string, string[]>();
+  for (const row of rows) {
+    const list = byStop.get(row.stopId);
+    if (list) {
+      if (!list.includes(row.routeName)) list.push(row.routeName);
+    } else {
+      byStop.set(row.stopId, [row.routeName]);
+    }
+  }
+  return byStop;
+}
+
 // ---------------------------------------------------------------- arrivals (passenger)
 
 export interface Arrival {

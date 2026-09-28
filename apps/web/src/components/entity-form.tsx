@@ -20,6 +20,8 @@ export interface FormResult {
   ok: boolean;
   error?: string;
   message?: string;
+  /** message per field name, shown under that field instead of only on top */
+  fieldErrors?: Record<string, string>;
 }
 
 export function EntityForm({
@@ -66,7 +68,7 @@ export function EntityForm({
       <div className={cx("grid gap-3", compact ? "sm:grid-cols-2" : "sm:grid-cols-2 lg:grid-cols-3")}>
         {fields.map((f) => (
           <div key={f.name} className={f.wide ? "sm:col-span-2" : undefined}>
-            <Field label={f.label} hint={f.hint}>
+            <Field label={f.label} hint={f.hint} error={result?.fieldErrors?.[f.name]}>
               {f.type === "select" ? (
                 <select
                   className={inputClass}

@@ -21,6 +21,11 @@ export interface MapStop {
   muted?: boolean;
   /** numbered pin colour; defaults to the first line's colour */
   color?: string;
+  /**
+   * The marker can be dragged to a new place. Such a point is always drawn as a
+   * Marker: Leaflet's CircleMarker has no drag handler at all.
+   */
+  draggable?: boolean;
 }
 
 export interface MapLine {
@@ -71,6 +76,12 @@ export interface MapViewProps {
   onMapClick?: (lat: number, lng: number) => void;
   /** called when a stop marker is clicked */
   onStopClick?: (stopId: string) => void;
+  /**
+   * Called once a draggable marker is dropped. The caller must move the point in
+   * its own state: Leaflet has already moved the marker, so anything else leaves
+   * the picture and the data disagreeing.
+   */
+  onStopDragEnd?: (stopId: string, lat: number, lng: number) => void;
   /** keeps this point centred as it moves (navigation mode) */
   follow?: { lat: number; lng: number } | null;
   /** called when the user drags the map, e.g. to stop following */
@@ -118,11 +129,31 @@ function orderedIcon(stop: MapStop, color: string): L.DivIcon {
   const size = stop.highlight ? 32 : 26;
   const background = stop.muted ? "#94a3b8" : color;
   const ring = stop.highlight ? "box-shadow:0 0 0 3px #ea580c" : "box-shadow:0 1px 3px rgba(15,23,42,.4)";
+  const cursor = stop.draggable ? "cursor:grab;" : "";
   return L.divIcon({
     className: "",
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
-    html: `<div style="display:flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;border-radius:9999px;background:${background};border:2px solid #fff;${ring};color:#fff;font:600 12px/1 system-ui,sans-serif">${stop.order}</div>`,
+    html: `<div style="${cursor}display:flex;align-items:center;justify-content:center;width:${size}px;height:${size}px;border-radius:9999px;background:${background};border:2px solid #fff;${ring};color:#fff;font:600 12px/1 system-ui,sans-serif">${stop.order}</div>`,
+  });
+}
+
+/**
+ * Teardrop pin for a point that is placed rather than numbered — the stop being
+ * created or edited in the directory. The tip marks the exact spot, so the icon
+ * is anchored at the bottom instead of the centre.
+ */
+function pinIcon(stop: MapStop, color: string): L.DivIcon {
+  const background = stop.muted ? "#94a3b8" : color;
+  const ring = stop.highlight ? "box-shadow:0 0 0 3px #ea580c" : "box-shadow:0 1px 3px rgba(15,23,42,.4)";
+  const cursor = stop.draggable ? "cursor:grab;" : "";
+  return L.divIcon({
+    className: "",
+    iconSize: [26, 34],
+    iconAnchor: [13, 32],
+    html: `<div style="${cursor}display:flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:9999px 9999px 9999px 0;transform:rotate(-45deg);background:${background};border:2px solid #fff;${ring}">
+      <span style="display:block;width:8px;height:8px;border-radius:9999px;background:#fff"></span>
+    </div>`,
   });
 }
 
@@ -235,6 +266,7 @@ export default function MapView({
   autoFit = true,
   onMapClick,
   onStopClick,
+  onStopDragEnd,
   follow,
   onUserMove,
   fitKey,
@@ -291,24 +323,45 @@ export default function MapView({
           </Popup>
         </Circle>
       ))}
-      {stops.map((s) =>
-        s.order !== undefined ? (
-          <Marker
-            key={s.id}
-            position={[s.lat, s.lng]}
-            icon={orderedIcon(s, s.color ?? lines[0]?.color ?? "#2563eb")}
-            zIndexOffset={300}
-            bubblingMouseEvents={false}
-            eventHandlers={onStopClick ? { click: () => onStopClick(s.id) } : undefined}
-          >
-            <Popup>
-              <span className="font-medium">
-                {s.order}. {s.name}
-              </span>
-              {s.note ? <div className="text-xs text-slate-600">{s.note}</div> : null}
-            </Popup>
-          </Marker>
-        ) : (
+      {stops.map((s) => {
+        const color = s.color ?? lines[0]?.color ?? "#2563eb";
+        const caption = (
+          <Popup>
+            <span className="font-medium">
+              {s.order === undefined ? s.name : `${s.order}. ${s.name}`}
+            </span>
+            {s.note ? <div className="text-xs text-slate-600">{s.note}</div> : null}
+          </Popup>
+        );
+
+        // Numbered points and draggable ones both need a real Marker.
+        if (s.order !== undefined || s.draggable) {
+          const handlers: L.LeafletEventHandlerFnMap = {};
+          if (onStopClick) handlers.click = () => onStopClick(s.id);
+          if (s.draggable && onStopDragEnd) {
+            handlers.dragend = (event) => {
+              const position = (event.target as L.Marker).getLatLng();
+              onStopDragEnd(s.id, position.lat, position.lng);
+            };
+          }
+          return (
+            <Marker
+              key={s.id}
+              position={[s.lat, s.lng]}
+              icon={s.order === undefined ? pinIcon(s, color) : orderedIcon(s, color)}
+              zIndexOffset={s.draggable ? 400 : 300}
+              draggable={s.draggable ?? false}
+              // dragged to the edge: let the map follow instead of stopping
+              autoPan={s.draggable ?? false}
+              bubblingMouseEvents={false}
+              eventHandlers={handlers}
+            >
+              {caption}
+            </Marker>
+          );
+        }
+
+        return (
           <CircleMarker
             key={s.id}
             center={[s.lat, s.lng]}
@@ -322,13 +375,10 @@ export default function MapView({
               weight: s.muted ? 2 : 3,
             }}
           >
-            <Popup>
-              <span className="font-medium">{s.name}</span>
-              {s.note ? <div className="text-xs text-slate-600">{s.note}</div> : null}
-            </Popup>
+            {caption}
           </CircleMarker>
-        ),
-      )}
+        );
+      })}
       {vehicles.map((v) => (
         <Marker key={v.id} position={[v.lat, v.lng]} icon={vehicleIcon(v)} zIndexOffset={500}>
           <Popup>
