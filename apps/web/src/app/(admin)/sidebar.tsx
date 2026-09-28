@@ -9,6 +9,7 @@ import {
   IconBus,
   IconCalendar,
   IconChart,
+  IconHelp,
   IconHome,
   IconLogout,
   IconRadar,
@@ -71,6 +72,7 @@ function groups(attention: number): NavGroup[] {
       items: [
         { href: "/admin/messages", label: "Уведомления", icon: <IconBell /> },
         { href: "/admin/settings", label: "Настройки", icon: <IconSettings /> },
+        { href: "/admin/help", label: "Вопросы и ответы", icon: <IconHelp /> },
       ],
     },
   ];

@@ -4,7 +4,7 @@ import { requireRole } from "@/lib/auth";
 import { db, schema } from "@/lib/db";
 import { getFavorites, listRoutes, listStops } from "@/lib/queries";
 import { RouteBadge } from "@/components/ui";
-import { IconChevronRight, IconHome, IconLogout, IconPin } from "@/components/icons";
+import { IconChevronRight, IconHelp, IconHome, IconLogout, IconPin } from "@/components/icons";
 import { HomeAddressForm } from "./home-form";
 import { PushSetup } from "@/components/push-setup";
 import { VAPID_PUBLIC_KEY } from "@/lib/push";
@@ -120,6 +120,21 @@ export default async function ProfilePage() {
               ))}
             </ul>
           )}
+        </section>
+
+        <section className="flex flex-col gap-2">
+          <SectionHeading>Помощь</SectionHeading>
+          <Link
+            href="/app/help"
+            className="flex min-h-14 items-center gap-3 rounded-2xl bg-card px-4 transition-colors hover:bg-muted"
+          >
+            <IconHelp className="size-5 shrink-0 text-primary" />
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="text-[15px] font-semibold">Вопросы и ответы</span>
+              <span className="truncate text-sm text-muted-foreground">Зачем записываться и что делать, если автобус не пришёл</span>
+            </span>
+            <IconChevronRight className="size-4 shrink-0 text-muted-foreground" />
+          </Link>
         </section>
 
         <form action="/logout" method="post">

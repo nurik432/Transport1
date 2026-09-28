@@ -227,3 +227,12 @@ export const IconPhone = (p: SVGProps<SVGSVGElement>) => (
     <path d="M6.5 3.5h3l1.5 4-2 1.5a12 12 0 0 0 6 6l1.5-2 4 1.5v3a2 2 0 0 1-2.2 2A16.5 16.5 0 0 1 4.5 5.7 2 2 0 0 1 6.5 3.5Z" />
   </Base>
 );
+
+/** Help: a question inside a circle. */
+export const IconHelp = (p: SVGProps<SVGSVGElement>) => (
+  <Base {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M9.5 9.2a2.6 2.6 0 1 1 3.3 2.5c-.5.2-.8.7-.8 1.3v.5" />
+    <path d="M12 16.8v.01" />
+  </Base>
+);

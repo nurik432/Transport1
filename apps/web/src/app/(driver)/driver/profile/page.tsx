@@ -3,7 +3,8 @@ import { localNow, plural } from "@transport/domain";
 import { requireRole } from "@/lib/auth";
 import { db, schema } from "@/lib/db";
 import { getDriverTrips } from "@/lib/queries";
-import { IconBus, IconLogout } from "@/components/icons";
+import Link from "next/link";
+import { IconBus, IconChevronRight, IconHelp, IconLogout } from "@/components/icons";
 import { PushSetup } from "@/components/push-setup";
 import { VAPID_PUBLIC_KEY } from "@/lib/push";
 
@@ -95,6 +96,23 @@ export default async function DriverProfile() {
             vapidPublicKey={VAPID_PUBLIC_KEY}
             hint="Сообщения администратора и изменения маршрута приходят на это устройство."
           />
+        </section>
+
+        <section className="flex flex-col gap-2">
+          <h2 className="mx-1 text-[13px] font-semibold text-muted-foreground">Помощь</h2>
+          <Link
+            href="/driver/help"
+            className="flex min-h-14 items-center gap-3 rounded-2xl bg-card px-3.5 transition-colors hover:bg-muted"
+          >
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary-soft text-primary">
+              <IconHelp className="size-5.5" />
+            </span>
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="text-[15px] font-semibold">Вопросы и ответы</span>
+              <span className="truncate text-[13px] text-muted-foreground">Что делать, если забыл отметить остановку</span>
+            </span>
+            <IconChevronRight className="size-4 shrink-0 text-muted-foreground" />
+          </Link>
         </section>
 
         <form action="/logout" method="post">
