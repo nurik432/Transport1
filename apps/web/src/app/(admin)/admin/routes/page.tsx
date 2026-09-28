@@ -3,7 +3,7 @@ import { requireRole } from "@/lib/auth";
 import { listRoutes } from "@/lib/queries";
 import { buildAnalytics, DIRECTION_LABEL } from "@/lib/analytics";
 import { AdminMain, Cell, PageHeader, Row, Table } from "@/components/admin-ui";
-import { LinkButton, LoadBar, RouteBadge, StatusPill } from "@/components/ui";
+import { LinkButton, LoadBar, Pill, RouteBadge, StatusPill } from "@/components/ui";
 import { RebuildGeometryButton, RouteRowActions } from "./route-actions";
 
 const STATUS_LABEL: Record<string, string> = { active: "Активен", draft: "Черновик", inactive: "Отключён" };
@@ -28,11 +28,17 @@ export default async function RoutesPage() {
         }
       />
 
-      <Table head={["Маршрут", "Направление", "Остановок", "Путь", "Средняя загрузка", "Статус", "Состояние", ""]}>
+      <Table
+        head={["Маршрут", "Направление", "Остановок", "Отправлений", "Путь", "Средняя загрузка", "Статус", "Состояние", ""]}
+        minWidth="56rem"
+      >
         {routes.map((r) => {
           const a = statsById.get(r.id);
+          // An active route with no departures produces no trips at all, and
+          // nothing else on this screen would say so.
+          const silent = r.status === "active" && r.schedules.length === 0;
           return (
-            <Row key={r.id}>
+            <Row key={r.id} tone={silent ? "attention" : "plain"}>
               <Cell>
                 <Link href={`/admin/routes/${r.id}`} className="inline-flex items-center gap-2 hover:underline">
                   <RouteBadge name={r.name} color={r.color} />
@@ -41,6 +47,13 @@ export default async function RoutesPage() {
               </Cell>
               <Cell className="text-muted-foreground">{DIRECTION_LABEL[r.direction]}</Cell>
               <Cell className="tabular-nums">{r.stops.length}</Cell>
+              <Cell className="tabular-nums">
+                {r.schedules.length > 0 ? (
+                  r.schedules.length
+                ) : (
+                  <Pill tone="warn">нет расписания</Pill>
+                )}
+              </Cell>
               <Cell className="whitespace-nowrap text-muted-foreground tabular-nums">
                 {r.pathSource === "road" && r.pathDistanceM ? (
                   `${(r.pathDistanceM / 1000).toFixed(1).replace(".", ",")} км по дорогам`

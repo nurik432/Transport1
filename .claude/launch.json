@@ -4,8 +4,13 @@
     {
       "name": "transport-web",
       "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["--filter", "web", "dev"],
-      "port": 3000
+      "runtimeArgs": [
+        "--filter",
+        "web",
+        "dev"
+      ],
+      "port": 3000,
+      "autoPort": true
     }
   ]
 }

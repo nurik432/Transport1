@@ -3,7 +3,13 @@
 import { revalidatePath } from "next/cache";
 import { and, asc, desc, eq, gte, inArray, lte, ne, sql } from "drizzle-orm";
 import { z } from "zod";
-import { addDays, weekdayOfDate, type LoadThresholds } from "@transport/domain";
+import {
+  addDays,
+  validateRouteForm,
+  weekdayOfDate,
+  type LoadThresholds,
+  type RouteFormInput,
+} from "@transport/domain";
 import { db, schema } from "@/lib/db";
 import { hashPassword, requireRole } from "@/lib/auth";
 import { saveThresholds } from "@/lib/queries";
@@ -16,19 +22,41 @@ export interface ActionResult {
   error?: string;
   message?: string;
   id?: string;
+  /** message per form field, so a screen can mark the field that is wrong */
+  fieldErrors?: Record<string, string>;
 }
 
 function fail(error: string): ActionResult {
   return { ok: false, error };
 }
 
-function parse<T extends z.ZodTypeAny>(schemaDef: T, data: unknown): z.infer<T> | { __error: string } {
-  const result = schemaDef.safeParse(data);
-  if (result.success) return result.data;
-  return { __error: result.error.issues[0]?.message ?? "Проверьте заполненные поля" };
+/** Failure the form can attribute: a summary plus one message per field. */
+function failFields(error: string, fieldErrors: Record<string, string>): ActionResult {
+  return { ok: false, error, fieldErrors };
 }
 
-function isError(v: unknown): v is { __error: string } {
+interface ParseFail {
+  __error: string;
+  /** first problem found on each field, keyed by its path ("lat", "stops.2.offsetMin") */
+  __fields: Record<string, string>;
+}
+
+/**
+ * `__error` stays the single summary line every caller already shows, while
+ * `__fields` lets the few forms that support it point at the actual field.
+ */
+function parse<T extends z.ZodTypeAny>(schemaDef: T, data: unknown): z.infer<T> | ParseFail {
+  const result = schemaDef.safeParse(data);
+  if (result.success) return result.data;
+  const fields: Record<string, string> = {};
+  for (const issue of result.error.issues) {
+    const key = issue.path.join(".");
+    if (key && !(key in fields)) fields[key] = issue.message;
+  }
+  return { __error: result.error.issues[0]?.message ?? "Проверьте заполненные поля", __fields: fields };
+}
+
+function isError(v: unknown): v is ParseFail {
   return typeof v === "object" && v !== null && "__error" in v;
 }
 
@@ -51,7 +79,7 @@ const stopSchema = z.object({
 export async function saveStop(input: unknown): Promise<ActionResult> {
   await requireRole("admin");
   const data = parse(stopSchema, input);
-  if (isError(data)) return fail(data.__error);
+  if (isError(data)) return failFields(data.__error, data.__fields);
 
   if (data.id) {
     await db
@@ -68,6 +96,42 @@ export async function saveStop(input: unknown): Promise<ActionResult> {
     .returning({ id: schema.stops.id });
   refreshAdmin("/admin/stops", "/app");
   return { ok: true, id: rows[0]!.id, message: "Остановка создана" };
+}
+
+const moveStopSchema = z.object({
+  id: z.string().uuid(),
+  lat: z.coerce.number().min(-90).max(90),
+  lng: z.coerce.number().min(-180).max(180),
+});
+
+/**
+ * Move a stop to a new place, touching nothing else.
+ * Deliberately not `saveStop`: that one needs a name and a status and clears the
+ * address when the form sends an empty one, which is wrong for a drag on a map.
+ *
+ * Route geometry is not rebuilt here. Reshaping every route that uses the stop
+ * would be expensive and would contradict the rule that the router is called
+ * only when a route changes or on request, so the message says when the path
+ * will catch up instead of quietly doing it.
+ */
+export async function moveStop(input: unknown): Promise<ActionResult> {
+  await requireRole("admin");
+  const data = parse(moveStopSchema, input);
+  if (isError(data)) return failFields(data.__error, data.__fields);
+
+  const updated = await db
+    .update(schema.stops)
+    .set({ lat: data.lat, lng: data.lng })
+    .where(eq(schema.stops.id, data.id))
+    .returning({ name: schema.stops.name });
+  if (!updated[0]) return fail("Остановка не найдена");
+
+  refreshAdmin("/admin/stops", "/admin/routes", "/app");
+  return {
+    ok: true,
+    id: data.id,
+    message: `Остановка «${updated[0].name}» перенесена. Путь маршрутов с ней пересчитается при следующем сохранении маршрута или кнопкой «Построить путь по дорогам».`,
+  };
 }
 
 export async function deleteStop(id: string): Promise<ActionResult> {
@@ -87,6 +151,8 @@ const routeStopSchema = z.object({
   /** null for a point placed on the map: the stop is created on save */
   stopId: z.string().uuid().nullable().optional(),
   name: z.string().trim().optional(),
+  /** filled in by the place search, kept on the stop that gets created */
+  address: z.string().trim().optional(),
   lat: z.coerce.number().min(-90).max(90).optional(),
   lng: z.coerce.number().min(-180).max(180).optional(),
   offsetMin: z.coerce.number().int().min(0).max(600),
@@ -103,12 +169,32 @@ const routeSchema = z.object({
     .regex(/^#[0-9a-fA-F]{6}$/, "Цвет должен быть в формате #RRGGBB")
     .default("#2563eb"),
   plannedCapacity: z.coerce.number().int().min(0).max(200).nullable().optional(),
-  stops: z.array(routeStopSchema).min(2, "В маршруте должно быть минимум две остановки"),
+  stops: z.array(routeStopSchema),
   departures: z.array(z.string().regex(/^\d{2}:\d{2}$/, "Время в формате ЧЧ:ММ")).default([]),
   daysOfWeek: z.array(z.coerce.number().int().min(1).max(7)).default([1, 2, 3, 4, 5]),
   /** what changed, stored with the new version */
   versionNote: z.string().trim().max(200).optional(),
 });
+
+/** The form as the shared rules see it; zod has already checked shapes and types. */
+function routeFormInput(data: z.infer<typeof routeSchema>): RouteFormInput {
+  return {
+    name: data.name,
+    direction: data.direction,
+    status: data.status,
+    color: data.color,
+    plannedCapacity: data.plannedCapacity ?? null,
+    stops: data.stops.map((s) => ({
+      stopId: s.stopId ?? null,
+      name: s.name ?? "",
+      lat: s.lat ?? 0,
+      lng: s.lng ?? 0,
+      offsetMin: s.offsetMin,
+    })),
+    departures: data.departures,
+    daysOfWeek: data.daysOfWeek,
+  };
+}
 
 /** Create stops for points placed on the map, and return the final stop ids. */
 async function resolveRouteStops(
@@ -130,6 +216,7 @@ async function resolveRouteStops(
         name: stop.name?.trim() || "Новая остановка",
         lat: stop.lat,
         lng: stop.lng,
+        address: stop.address?.trim() || null,
         status: "active",
       })
       .returning({ id: schema.stops.id });
@@ -182,10 +269,40 @@ async function createRouteVersion(
   return { versionId, version };
 }
 
+/**
+ * Whether the shape changed, which is what creates a new version.
+ * Shared with `describeRouteSave` on purpose: a warning computed by different
+ * logic than the save it warns about is worse than no warning.
+ */
+function shapeDiffers(
+  current: readonly { stopId: string; offsetMin: number }[],
+  next: readonly { stopId: string; offsetMin: number }[],
+  hasVersion: boolean,
+): boolean {
+  if (!hasVersion) return true;
+  if (current.length !== next.length) return true;
+  return current.some((s, i) => s.stopId !== next[i]!.stopId || s.offsetMin !== next[i]!.offsetMin);
+}
+
+async function currentShape(versionId: string | null): Promise<{ stopId: string; offsetMin: number }[]> {
+  if (!versionId) return [];
+  return db
+    .select({ stopId: schema.routeStops.stopId, offsetMin: schema.routeStops.offsetMin })
+    .from(schema.routeStops)
+    .where(eq(schema.routeStops.versionId, versionId))
+    .orderBy(asc(schema.routeStops.seq));
+}
+
 export async function saveRoute(input: unknown): Promise<ActionResult> {
   const admin = await requireRole("admin");
   const data = parse(routeSchema, input);
-  if (isError(data)) return fail(data.__error);
+  if (isError(data)) return failFields(data.__error, data.__fields);
+
+  // Business rules come from the shared module, so the server enforces exactly
+  // what the editor showed the administrator.
+  const { errors } = validateRouteForm(routeFormInput(data));
+  const firstError = Object.values(errors)[0];
+  if (firstError) return failFields(firstError, errors);
 
   const values = {
     name: data.name,
@@ -220,17 +337,8 @@ export async function saveRoute(input: unknown): Promise<ActionResult> {
   if ("ok" in resolved) return resolved;
 
   // Compare with the current shape: a metadata-only edit must not create a version.
-  const currentStops = currentVersionId
-    ? await db
-        .select({ stopId: schema.routeStops.stopId, offsetMin: schema.routeStops.offsetMin })
-        .from(schema.routeStops)
-        .where(eq(schema.routeStops.versionId, currentVersionId))
-        .orderBy(asc(schema.routeStops.seq))
-    : [];
-  const shapeChanged =
-    !currentVersionId ||
-    currentStops.length !== resolved.length ||
-    currentStops.some((s, i) => s.stopId !== resolved[i]!.stopId || s.offsetMin !== resolved[i]!.offsetMin);
+  const currentStops = await currentShape(currentVersionId);
+  const shapeChanged = shapeDiffers(currentStops, resolved, Boolean(currentVersionId));
 
   let newVersion: { versionId: string; version: number } | null = null;
   if (shapeChanged) {
@@ -281,6 +389,124 @@ export async function saveRoute(input: unknown): Promise<ActionResult> {
       ? `, путь по дорогам ${(geometry.distanceM / 1000).toFixed(1).replace(".", ",")} км`
       : ", путь по дорогам построить не удалось — показаны прямые линии";
   return { ok: true, id: routeId, message: base + note };
+}
+
+export interface SaveImpact {
+  shapeChanged: boolean;
+  nextVersion: number | null;
+  stopCountBefore: number;
+  stopCountAfter: number;
+  /** departures about to disappear, and the planned trips that go with them */
+  removedDepartures: string[];
+  cancelledTripCount: number;
+  /** planned trips that will move onto the new shape */
+  movedTripCount: number;
+  notifiedUserCount: number;
+  /** points that will be added to the stop directory */
+  newStopNames: string[];
+}
+
+/**
+ * What saving this form would do, worked out before anything is written.
+ *
+ * Takes the same body as `saveRoute` and reuses its comparison, so the warning
+ * and the action cannot drift apart. It writes nothing — in particular it does
+ * not create the stops for new points, it only counts them.
+ */
+export async function describeRouteSave(
+  input: unknown,
+): Promise<{ ok: true; impact: SaveImpact } | ActionResult> {
+  await requireRole("admin");
+  const data = parse(routeSchema, input);
+  if (isError(data)) return failFields(data.__error, data.__fields);
+  if (!data.id) return fail("Маршрут ещё не сохранён");
+
+  const existing = await db
+    .select({ currentVersionId: schema.routes.currentVersionId })
+    .from(schema.routes)
+    .where(eq(schema.routes.id, data.id))
+    .limit(1);
+  if (!existing[0]) return fail("Маршрут не найден");
+  const currentVersionId = existing[0].currentVersionId;
+
+  // Points that have no stop yet keep their place in the comparison: a blank id
+  // can never equal an existing one, so adding a point always counts as a change.
+  const nextShape = data.stops.map((s, i) => ({ stopId: s.stopId ?? `new-${i}`, offsetMin: s.offsetMin }));
+  const currentStops = await currentShape(currentVersionId);
+  const shapeChanged = shapeDiffers(currentStops, nextShape, Boolean(currentVersionId));
+
+  const latest = await db
+    .select({ version: schema.routeVersions.version })
+    .from(schema.routeVersions)
+    .where(eq(schema.routeVersions.routeId, data.id))
+    .orderBy(desc(schema.routeVersions.version))
+    .limit(1);
+
+  const today = new Date().toISOString().slice(0, 10);
+
+  const schedules = await db
+    .select({ id: schema.routeSchedules.id, departureTime: schema.routeSchedules.departureTime })
+    .from(schema.routeSchedules)
+    .where(eq(schema.routeSchedules.routeId, data.id));
+  const wanted = new Set(data.departures);
+  const removed = schedules.filter((s) => !wanted.has(s.departureTime.slice(0, 5)));
+
+  let cancelledTripCount = 0;
+  if (removed.length) {
+    const rows = await db
+      .select({ n: sql<number>`count(*)` })
+      .from(schema.trips)
+      .where(
+        and(
+          inArray(
+            schema.trips.scheduleId,
+            removed.map((r) => r.id),
+          ),
+          eq(schema.trips.status, "planned"),
+        ),
+      );
+    cancelledTripCount = Number(rows[0]?.n ?? 0);
+  }
+
+  let movedTripCount = 0;
+  let notifiedUserCount = 0;
+  if (shapeChanged) {
+    const moved = await db
+      .select({ n: sql<number>`count(*)` })
+      .from(schema.trips)
+      .where(
+        and(eq(schema.trips.routeId, data.id), eq(schema.trips.status, "planned"), gte(schema.trips.date, today)),
+      );
+    movedTripCount = Number(moved[0]?.n ?? 0);
+
+    const passengerRows = await db
+      .selectDistinct({ userId: schema.passengerTrips.passengerId })
+      .from(schema.passengerTrips)
+      .innerJoin(schema.trips, eq(schema.trips.id, schema.passengerTrips.tripId))
+      .where(and(eq(schema.trips.routeId, data.id), gte(schema.trips.date, today)));
+    const driverRows = await db
+      .selectDistinct({ userId: schema.trips.driverId })
+      .from(schema.trips)
+      .where(and(eq(schema.trips.routeId, data.id), gte(schema.trips.date, today)));
+    notifiedUserCount = new Set(
+      [...passengerRows.map((r) => r.userId), ...driverRows.map((d) => d.userId)].filter(Boolean),
+    ).size;
+  }
+
+  return {
+    ok: true,
+    impact: {
+      shapeChanged,
+      nextVersion: shapeChanged ? (latest[0]?.version ?? 0) + 1 : null,
+      stopCountBefore: currentStops.length,
+      stopCountAfter: data.stops.length,
+      removedDepartures: removed.map((r) => r.departureTime.slice(0, 5)).sort(),
+      cancelledTripCount,
+      movedTripCount,
+      notifiedUserCount,
+      newStopNames: data.stops.filter((s) => !s.stopId).map((s) => s.name?.trim() || "Новая остановка"),
+    },
+  };
 }
 
 /** Tell the route's drivers and booked passengers that it changed. */
@@ -678,11 +904,6 @@ export async function updateThresholds(input: unknown): Promise<ActionResult> {
   return { ok: true, message: "Пороги сохранены" };
 }
 
-export async function listStopOptions() {
-  await requireRole("admin");
-  return db.select({ id: schema.stops.id, name: schema.stops.name }).from(schema.stops).orderBy(asc(schema.stops.name));
-}
-
 const liveSchema = z.object({
   offRouteM: z.coerce.number().int().min(50).max(5000),
   consecutive: z.coerce.number().int().min(1).max(20),
@@ -728,6 +949,8 @@ const proposalSchema = z.object({
  * reviews it and switches it to active.
  */
 export async function createRouteDraft(input: unknown): Promise<ActionResult> {
+  // Authorise before the first write: resolving stops already inserts rows.
+  const admin = await requireRole("admin");
   const data = parse(proposalSchema, input);
   if (isError(data)) return fail(data.__error);
 
@@ -744,7 +967,6 @@ export async function createRouteDraft(input: unknown): Promise<ActionResult> {
     resolved.push({ stopId: created[0]!.id, offsetMin: stop.offsetMin });
   }
 
-  const admin = await requireRole("admin");
   const route = await db
     .insert(schema.routes)
     .values({

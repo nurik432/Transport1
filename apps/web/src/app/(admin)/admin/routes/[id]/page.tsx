@@ -1,9 +1,10 @@
 import { notFound } from "next/navigation";
 import { requireRole } from "@/lib/auth";
-import { getRoute, getRouteVersions, listStops } from "@/lib/queries";
+import { localNow } from "@transport/domain";
+import { getRoute, getRouteReadinessFacts, getRouteVersions, listStops } from "@/lib/queries";
 import { AdminMain, PageHeader } from "@/components/admin-ui";
 import { LinkButton } from "@/components/ui";
-import { RouteEditor } from "../route-editor";
+import { RouteEditor } from "../editor/route-editor";
 
 export default async function EditRoutePage({
   params,
@@ -17,7 +18,13 @@ export default async function EditRoutePage({
   // The analysis screen links here with the departure it suggests adding.
   const suggestedDeparture = /^\d{2}:\d{2}$/.test(departure ?? "") ? departure! : null;
 
-  const [route, allStops, versions] = await Promise.all([getRoute(id), listStops(), getRouteVersions(id)]);
+  const today = localNow().date;
+  const [route, allStops, versions, facts] = await Promise.all([
+    getRoute(id),
+    listStops(),
+    getRouteVersions(id),
+    getRouteReadinessFacts(id, today),
+  ]);
   if (!route) notFound();
 
   // Offer active stops, plus any inactive stop this route still uses.
@@ -38,9 +45,12 @@ export default async function EditRoutePage({
       />
 
       <RouteEditor
+        mode="edit"
+        facts={{ ...facts, today }}
         suggestedDeparture={suggestedDeparture}
         stopOptions={options}
         savedPath={route.path}
+        savedPathSource={route.pathSource}
         savedDistanceM={route.pathDistanceM}
         versions={versions.map((v) => ({ ...v, createdAt: v.createdAt.toISOString() }))}
         initial={{
@@ -54,6 +64,7 @@ export default async function EditRoutePage({
           stops: route.stops.map((s) => ({
             stopId: s.stopId,
             name: s.name,
+            address: s.address ?? "",
             lat: s.lat,
             lng: s.lng,
             offsetMin: s.offsetMin,

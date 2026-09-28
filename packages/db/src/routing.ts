@@ -62,6 +62,43 @@ interface OsrmResponse {
 }
 
 /**
+ * Short-lived cache of provider answers, keyed by the exact list of points.
+ *
+ * Saving a route asks twice over a few seconds: once from the editor for the
+ * preview, once on the server to store the geometry. The answer cannot differ
+ * between those two calls, so the second one is served from here and the
+ * provider sees a single request. What is cached is the provider's answer, not
+ * anything the browser sent, so this cannot be used to smuggle in a made-up path.
+ *
+ * A straight-line fallback expires quickly: once the provider is back, a route
+ * must not stay on straight lines for the rest of the window.
+ */
+const PATH_CACHE_TTL_ROAD_MS = 5 * 60_000;
+const PATH_CACHE_TTL_STRAIGHT_MS = 30_000;
+const PATH_CACHE_MAX = 100;
+
+const pathCache = new Map<string, { at: number; path: RoadPath }>();
+
+function cachedPath(key: string): RoadPath | null {
+  const hit = pathCache.get(key);
+  if (!hit) return null;
+  const ttl = hit.path.source === "road" ? PATH_CACHE_TTL_ROAD_MS : PATH_CACHE_TTL_STRAIGHT_MS;
+  if (Date.now() - hit.at > ttl) {
+    pathCache.delete(key);
+    return null;
+  }
+  return hit.path;
+}
+
+function cachePath(key: string, path: RoadPath): RoadPath {
+  if (pathCache.size >= PATH_CACHE_MAX) {
+    for (const k of [...pathCache.keys()].slice(0, Math.floor(PATH_CACHE_MAX / 3))) pathCache.delete(k);
+  }
+  pathCache.set(key, { at: Date.now(), path });
+  return path;
+}
+
+/**
  * Ask the routing provider for the driving path through the given stops.
  * Falls back to straight lines on any failure: a route without geometry is
  * still usable, it just looks and estimates less precisely.
@@ -70,6 +107,9 @@ export async function fetchRoadPath(stops: readonly LatLng[]): Promise<RoadPath>
   if (stops.length < 2) return straightPath(stops, "Нужно минимум две остановки");
 
   const coordinates = stops.map((s) => `${round5(s.lng)},${round5(s.lat)}`).join(";");
+  const cached = cachedPath(coordinates);
+  if (cached) return cached;
+
   const url = `${routingUrl()}/route/v1/driving/${coordinates}?overview=full&geometries=geojson`;
 
   try {
@@ -78,13 +118,13 @@ export async function fetchRoadPath(stops: readonly LatLng[]): Promise<RoadPath>
       headers: { accept: "application/json" },
       cache: "no-store",
     });
-    if (!response.ok) return straightPath(stops, `Маршрутизатор ответил ${response.status}`);
+    if (!response.ok) return cachePath(coordinates, straightPath(stops, `Маршрутизатор ответил ${response.status}`));
 
     const json = (await response.json()) as OsrmResponse;
     const route = json.routes?.[0];
     const coords = route?.geometry?.coordinates;
     if (json.code !== "Ok" || !route || !coords || coords.length < 2) {
-      return straightPath(stops, json.message ?? "Маршрутизатор не построил путь");
+      return cachePath(coordinates, straightPath(stops, json.message ?? "Маршрутизатор не построил путь"));
     }
 
     // GeoJSON is [lng, lat]; the rest of the app uses [lat, lng].
@@ -97,15 +137,15 @@ export async function fetchRoadPath(stops: readonly LatLng[]): Promise<RoadPath>
       stopDistancesM.push(Math.round((stopDistancesM[i] ?? 0) + (legs[i]?.distance ?? 0)));
     }
 
-    return {
+    return cachePath(coordinates, {
       points,
       totalDistanceM: Math.round(route.distance ?? stopDistancesM.at(-1) ?? 0),
       stopDistancesM,
       source: "road",
-    };
+    });
   } catch (error) {
     const reason = error instanceof Error ? error.message : "неизвестная ошибка";
-    return straightPath(stops, `Маршрутизатор недоступен: ${reason}`);
+    return cachePath(coordinates, straightPath(stops, `Маршрутизатор недоступен: ${reason}`));
   }
 }
 
@@ -263,18 +303,6 @@ export async function rebuildVersionGeometry(db: Db, versionId: string): Promise
     distanceM: path.totalDistanceM,
     error: path.error,
   };
-}
-
-/** Build geometry for the version the route currently serves. */
-export async function rebuildRouteGeometry(db: Db, routeId: string): Promise<GeometryResult | null> {
-  const rows = await db
-    .select({ currentVersionId: schema.routes.currentVersionId })
-    .from(schema.routes)
-    .where(eq(schema.routes.id, routeId))
-    .limit(1);
-  const versionId = rows[0]?.currentVersionId;
-  if (!versionId) return null;
-  return rebuildVersionGeometry(db, versionId);
 }
 
 /** Rebuild geometry for every route's current version, one at a time. */
