@@ -22,9 +22,17 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # От дешёвых проверок к дорогим: сборка идёт последней, чтобы очевидная
+      # ошибка не ждала её полторы минуты.
       - run: pnpm typecheck
+      - run: pnpm lint
       - run: pnpm test
       - run: pnpm docs:faq:check
+      # Базы данных сборке не нужно: клиент в lib/db.ts создаётся лениво, а
+      # статически рендерятся только страницы ошибок, favicon и манифест.
+      # Поэтому DATABASE_URL сюда не пробрасывается: на продакшене его задаёт
+      # dokku postgres:link, и раннеру сборки эти доступы ни к чему.
+      - run: pnpm build
 
   deploy:
     needs: check
