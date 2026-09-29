@@ -32,11 +32,11 @@ export default async function RoutePage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ dep?: string }>;
+  searchParams: Promise<{ dep?: string; stop?: string }>;
 }) {
   const user = await requireRole("passenger");
   const { id } = await params;
-  const { dep } = await searchParams;
+  const { dep, stop } = await searchParams;
   const now = localNow();
 
   const allRoutes = await listRoutes(false);
@@ -104,10 +104,21 @@ export default async function RoutePage({
       )[0]
     : undefined;
   const bookedStopId = selected?.tripId ? bookedStopByTrip.get(selected.tripId) : undefined;
-  const boardingStopId = bookedStopId ?? nearest?.stop.stopId;
+  // A stop tapped in the list wins over the booking and the guess from home.
+  const pickedStopId = route.stops.some((s) => s.stopId === stop) ? stop : undefined;
+  const boardingStopId = pickedStopId ?? bookedStopId ?? nearest?.stop.stopId;
   const boardingStop = route.stops.find((s) => s.stopId === boardingStopId);
+  const bookedHere = bookedStopId != null && bookedStopId === boardingStopId;
+  const boardingAt = selected && boardingStop ? formatMinutes(selected.minutes + boardingStop.offsetMin) : "";
 
   const canBook = selected != null && selected.tripId != null && !isGone(selected);
+  const href = (to: { dep?: string; stop?: string }) => {
+    const query = new URLSearchParams();
+    if (to.dep) query.set("dep", to.dep);
+    if (to.stop) query.set("stop", to.stop);
+    const qs = query.toString();
+    return `/app/routes/${route.id}${qs ? `?${qs}` : ""}`;
+  };
 
   return (
     <>
@@ -164,7 +175,7 @@ export default async function RoutePage({
                 return (
                   <li key={d.time}>
                     <Link
-                      href={`/app/routes/${route.id}?dep=${d.time}`}
+                      href={href({ dep: d.time, stop: pickedStopId })}
                       scroll={false}
                       aria-current={active ? "true" : undefined}
                       className={cx(
@@ -200,18 +211,17 @@ export default async function RoutePage({
         {selected ? (
           <section className="flex flex-col gap-2">
             <h2 className="mx-1 text-[15px] font-bold">Остановки рейса {selected.time}</h2>
+            {canBook ? <p className="mx-1 text-xs text-muted-foreground">Нажмите на остановку, чтобы выбрать посадку</p> : null}
             <ol className="flex flex-col rounded-2xl bg-card px-3.5 py-1.5">
               {route.stops.map((s, i) => {
                 const mine = s.stopId === boardingStopId;
                 const last = i === route.stops.length - 1;
-                return (
-                  <li
-                    key={s.stopId}
-                    className={cx(
-                      "grid grid-cols-[20px_1fr_auto] items-center gap-x-3",
-                      mine ? "-mx-2 min-h-12 rounded-xl bg-highlight-soft px-2" : "min-h-11",
-                    )}
-                  >
+                const rowClass = cx(
+                  "grid grid-cols-[20px_1fr_auto] items-center gap-x-3",
+                  mine ? "-mx-2 min-h-12 rounded-xl bg-highlight-soft px-2" : "min-h-11",
+                );
+                const body = (
+                  <>
                     {mine ? (
                       <span className="size-4 justify-self-center rounded-full bg-highlight" />
                     ) : last ? (
@@ -225,15 +235,36 @@ export default async function RoutePage({
                       </span>
                       {mine ? (
                         <span className="text-xs font-semibold text-late">
-                          {bookedStopId
+                          {bookedHere
                             ? "Ваша посадка"
-                            : `Ближайшая к дому${nearest ? ` · ${formatDistance(nearest.distanceM)}` : ""}`}
+                            : pickedStopId
+                              ? "Посадка здесь"
+                              : `Ближайшая к дому${nearest ? ` · ${formatDistance(nearest.distanceM)}` : ""}`}
                         </span>
+                      ) : s.stopId === bookedStopId ? (
+                        <span className="text-xs text-muted-foreground">Сейчас ваша посадка</span>
                       ) : null}
                     </span>
                     <span className={cx("text-sm", mine ? "font-extrabold" : "font-semibold")}>
                       {formatMinutes(selected.minutes + s.offsetMin)}
                     </span>
+                  </>
+                );
+                return (
+                  <li key={s.stopId}>
+                    {canBook ? (
+                      <Link
+                        href={href({ dep: selected.time, stop: s.stopId })}
+                        replace
+                        scroll={false}
+                        aria-current={mine ? "true" : undefined}
+                        className={cx(rowClass, !mine && "-mx-2 rounded-xl px-2 transition-colors hover:bg-muted")}
+                      >
+                        {body}
+                      </Link>
+                    ) : (
+                      <div className={rowClass}>{body}</div>
+                    )}
                   </li>
                 );
               })}
@@ -244,10 +275,15 @@ export default async function RoutePage({
         <div className="flex flex-col gap-2">
           {canBook && selected?.tripId && boardingStop ? (
             <BookButton
+              key={boardingStop.stopId}
               tripId={selected.tripId}
               stopId={boardingStop.stopId}
-              booked={Boolean(bookedStopId)}
-              bookLabel={`Поеду в ${formatMinutes(selected.minutes + boardingStop.offsetMin)} с «${boardingStop.name}»`}
+              booked={bookedHere}
+              bookLabel={
+                bookedStopId
+                  ? `Садиться на «${boardingStop.name}» в ${boardingAt}`
+                  : `Поеду в ${boardingAt} с «${boardingStop.name}»`
+              }
               cancelLabel={`Не поеду в ${selected.time}`}
               size="lg"
               className="w-full"
