@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { addDays, formatDistance, formatLocalDate, localNow, nearestStops } from "@transport/domain";
 import { requireRole } from "@/lib/auth";
 import { db, schema } from "@/lib/db";
@@ -61,11 +61,39 @@ export default async function PassengerHome({
 
   const distanceTo = (stopId: string) => near.find((n) => n.stop.id === stopId)?.distanceM ?? null;
 
+  // The passenger's own bookings, wherever the boarding stop is: a trip booked
+  // from a stop that is not among the nearest still takes over the main card.
+  const myBookings = await db
+    .select({ tripId: schema.passengerTrips.tripId, stopId: schema.passengerTrips.stopId })
+    .from(schema.passengerTrips)
+    .innerJoin(schema.trips, eq(schema.trips.id, schema.passengerTrips.tripId))
+    .where(
+      and(
+        eq(schema.passengerTrips.passengerId, user.id),
+        eq(schema.passengerTrips.status, "planned"),
+        inArray(schema.trips.date, dates),
+        inArray(schema.trips.status, ["planned", "in_progress"]),
+      ),
+    );
+  const bookedArrivals = myBookings.length
+    ? (
+        await getUpcomingArrivals({
+          stopIds: [...new Set(myBookings.map((b) => b.stopId))],
+          dates,
+          now: now.instant,
+          passengerId: user.id,
+          direction,
+          limit: 50,
+        })
+      ).filter((a) => myBookings.some((b) => b.tripId === a.tripId && b.stopId === a.stopId))
+    : [];
+
   // A booked trip takes over the main card; otherwise the next vehicle does.
-  const mine = arrivals.find((a) => a.bookedByMe && !a.eta.passed);
+  const mine = bookedArrivals.find((a) => !a.eta.passed);
   const first = mine ?? arrivals[0];
   const heroStopId = first?.stopId ?? near[0]?.stop.id;
   const heroStop = near.find((n) => n.stop.id === heroStopId);
+  const mineStop = mine ? allStops.find((st) => st.id === mine.stopId) : undefined;
   const others = first
     ? arrivals
         .filter((a) => a !== first && a.stopId === heroStopId && a.eta.arrivalAt > first.eta.arrivalAt)
@@ -140,7 +168,9 @@ export default async function PassengerHome({
 
         <LocationSync hasCoords={hasCoords} />
 
-        {!origin ? (
+        {mine ? (
+          <TripCard arrival={mine} stop={mineStop ? { id: mineStop.id, name: mineStop.name, lat: mineStop.lat, lng: mineStop.lng } : undefined} />
+        ) : !origin ? (
           <section className="flex flex-col gap-4 rounded-3xl bg-card px-5 pt-6 pb-5">
             <span className="flex size-14 items-center justify-center rounded-2xl bg-primary-soft text-primary">
               <IconPin className="size-7" />
@@ -181,8 +211,6 @@ export default async function PassengerHome({
               {direction === "to_work" ? "На работу" : "Домой"} через эту остановку в ближайшие дни рейсов нет.
             </p>
           </section>
-        ) : mine ? (
-          <TripCard arrival={mine} />
         ) : (
           <EtaHero arrival={first} stopName={first.stopName} distanceM={distanceTo(first.stopId)} />
         )}

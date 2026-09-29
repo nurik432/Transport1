@@ -1,10 +1,11 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { MapPanel } from "@/components/map";
 import { useTripLive } from "@/components/live-trip";
 import { cx } from "@/components/ui";
 import { IconBus } from "@/components/icons";
+import { ShareLocation } from "./share-location";
 
 export interface LiveStop {
   stopId: string;
@@ -80,6 +81,7 @@ export function TripLivePanel({
 }) {
   const active = status === "in_progress";
   const live = useTripLive(tripId, active);
+  const [me, setMe] = useState<{ lat: number; lng: number } | null>(null);
   const fresh = live.tracking === "live" || live.tracking === "stale";
 
   const rows = stops.map((s) => {
@@ -135,7 +137,10 @@ export function TripLivePanel({
               ]
             : []
         }
+        me={me}
       />
+
+      {active && myStopId ? <ShareLocation tripId={tripId} onPosition={setMe} /> : null}
 
       <div className="flex items-center gap-2.5 rounded-xl bg-card px-3.5 py-2.5 text-sm">
         <span
