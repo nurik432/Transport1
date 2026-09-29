@@ -54,11 +54,11 @@ function Overlay({ children }: { children: ReactNode }) {
 
 function Heading({ title, subtitle }: { title: string; subtitle: string }) {
   return (
-    <div className="flex flex-col items-center gap-2 text-center">
-      <span className="flex size-12 items-center justify-center rounded-2xl bg-primary text-on-primary">
-        <IconLock className="size-6" />
+    <div className="flex flex-col items-center gap-3 text-center">
+      <span className="flex size-16 items-center justify-center rounded-full bg-primary text-on-primary">
+        <IconLock className="size-7" />
       </span>
-      <h1 className="text-xl font-semibold">{title}</h1>
+      <h1 className="text-2xl font-bold">{title}</h1>
       <p className="max-w-xs text-sm text-muted-foreground">{subtitle}</p>
     </div>
   );
