@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import { localNow, plural } from "@transport/domain";
-import { requireRole } from "@/lib/auth";
+import { getLockState, requireRole } from "@/lib/auth";
+import { PinSettings } from "@/components/pin-settings";
 import { db, schema } from "@/lib/db";
 import { getDriverTrips } from "@/lib/queries";
 import Link from "next/link";
@@ -31,6 +32,7 @@ function Tile({ value, label }: { value: number; label: string }) {
 
 export default async function DriverProfile() {
   const user = await requireRole("driver");
+  const lock = await getLockState();
   const now = localNow();
 
   const [rows, trips] = await Promise.all([
@@ -115,6 +117,13 @@ export default async function DriverProfile() {
             </span>
             <IconChevronRight className="size-4 shrink-0 text-muted-foreground" />
           </Link>
+        </section>
+
+        <section className="flex flex-col gap-2">
+          <h2 className="mx-1 text-[13px] font-semibold text-muted-foreground">PIN-код</h2>
+          <div className="rounded-2xl bg-card p-3.5">
+            <PinSettings pinSet={lock.pinSet} remember={lock.remember} />
+          </div>
         </section>
 
         <section className="flex flex-col gap-2">

@@ -267,3 +267,5 @@ Mechanical record only - see git history for diffs and rationale._
 - 2026-09-29 13:53  Edit  C:/Users/fid926309449/transport1/apps/web/src/app/(admin)/admin/settings/page.tsx
 - 2026-09-29 14:01  Edit  C:/Users/fid926309449/transport1/apps/web/Dockerfile
 - 2026-09-29 14:03  Edit  C:/Users/fid926309449/transport1/docs/deploy-dokku.md
+- 2026-09-29 16:16  Write  C:/Users/fid926309449/transport1/packages/domain/test/lock.test.ts
+- 2026-09-29 16:24  Write  C:/Users/fid926309449/transport1/packages/db/src/create-admin.ts

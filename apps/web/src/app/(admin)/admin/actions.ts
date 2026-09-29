@@ -5,6 +5,7 @@ import { and, asc, desc, eq, gte, inArray, lte, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   addDays,
+  canManageUser,
   validateRouteForm,
   weekdayOfDate,
   type LoadThresholds,
@@ -631,6 +632,10 @@ async function upsertUser(
   role: "driver" | "passenger",
 ): Promise<{ id: string; created: boolean } | ActionResult> {
   if (data.id) {
+    // The id comes from the browser: never let a driver/passenger form rewrite
+    // another kind of account (an admin's phone and password, above all).
+    const current = await db.select({ role: schema.users.role }).from(schema.users).where(eq(schema.users.id, data.id)).limit(1);
+    if (current[0]?.role !== role) return fail("Пользователь не найден");
     const set: Record<string, unknown> = { name: data.name, phone: data.phone, status: data.status };
     if (data.password) set.passwordHash = await hashPassword(data.password);
     await db.update(schema.users).set(set).where(eq(schema.users.id, data.id));
@@ -705,12 +710,85 @@ export async function savePassenger(input: unknown): Promise<ActionResult> {
   }
 }
 
+/** Target account if `actor` may manage it (see canManageUser), otherwise a ready failure. */
+async function getManageable(
+  actor: { id: string; isSuper: boolean },
+  userId: string,
+): Promise<{ id: string; role: "passenger" | "driver" | "admin"; isSuper: boolean } | ActionResult> {
+  const rows = await db
+    .select({ id: schema.users.id, role: schema.users.role, isSuper: schema.users.isSuper })
+    .from(schema.users)
+    .where(eq(schema.users.id, userId))
+    .limit(1);
+  const target = rows[0];
+  if (!target) return fail("Пользователь не найден");
+  if (!canManageUser(actor, target)) return fail("Недостаточно прав: администраторами управляет только суперадминистратор");
+  return target;
+}
+
 export async function setUserStatus(userId: string, status: "active" | "blocked"): Promise<ActionResult> {
-  await requireRole("admin");
+  const actor = await requireRole("admin");
+  const target = await getManageable(actor, userId);
+  if ("ok" in target) return target;
   await db.update(schema.users).set({ status }).where(eq(schema.users.id, userId));
   if (status === "blocked") await db.delete(schema.sessions).where(eq(schema.sessions.userId, userId));
-  refreshAdmin("/admin/drivers", "/admin/passengers");
+  refreshAdmin("/admin/drivers", "/admin/passengers", "/admin/admins");
   return { ok: true, message: status === "blocked" ? "Доступ заблокирован" : "Доступ восстановлен" };
+}
+
+// ---------------------------------------------------------------- admins
+
+const createAdminSchema = z.object({
+  name: z.string().trim().min(2, "Укажите имя"),
+  phone: phoneSchema,
+  password: z.string().min(6, "Пароль не короче 6 символов"),
+});
+
+/** Superadmin only. Any other admin gets a refusal, never a redirect, so the form can show it. */
+async function superActor() {
+  const actor = await requireRole("admin");
+  return actor.isSuper ? actor : null;
+}
+
+const SUPER_ONLY = "Только суперадминистратор управляет администраторами";
+
+export async function createAdmin(input: unknown): Promise<ActionResult> {
+  if (!(await superActor())) return fail(SUPER_ONLY);
+  const data = parse(createAdminSchema, input);
+  if (isError(data)) return fail(data.__error);
+  try {
+    await db.insert(schema.users).values({
+      name: data.name,
+      phone: data.phone,
+      role: "admin",
+      passwordHash: await hashPassword(data.password),
+    });
+  } catch {
+    return fail("Пользователь с таким телефоном уже существует");
+  }
+  refreshAdmin("/admin/admins");
+  return { ok: true, message: "Администратор добавлен" };
+}
+
+const resetAdminPasswordSchema = z.object({
+  id: z.string().uuid(),
+  password: z.string().min(6, "Пароль не короче 6 символов"),
+});
+
+/** Set a new password for another admin and sign them out everywhere. */
+export async function resetAdminPassword(input: unknown): Promise<ActionResult> {
+  const actor = await superActor();
+  if (!actor) return fail(SUPER_ONLY);
+  const data = parse(resetAdminPasswordSchema, input);
+  if (isError(data)) return fail(data.__error);
+  const target = await getManageable(actor, data.id);
+  if ("ok" in target) return target;
+  if (target.role !== "admin") return fail("Пользователь не найден");
+
+  await db.update(schema.users).set({ passwordHash: await hashPassword(data.password) }).where(eq(schema.users.id, data.id));
+  await db.delete(schema.sessions).where(eq(schema.sessions.userId, data.id));
+  refreshAdmin("/admin/admins");
+  return { ok: true, message: "Пароль изменён, администратор должен войти заново" };
 }
 
 // ---------------------------------------------------------------- trips

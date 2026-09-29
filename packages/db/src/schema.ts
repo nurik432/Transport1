@@ -51,6 +51,8 @@ export const users = pgTable(
     role: userRole("role").notNull(),
     status: userStatus("status").notNull().default("active"),
     passwordHash: text("password_hash").notNull(),
+    /** Superadmin: the only admin who can create, block and reset other admins. */
+    isSuper: boolean("is_super").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [uniqueIndex("users_phone_idx").on(t.phone)],
@@ -64,6 +66,13 @@ export const sessions = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    /** "Remember me": long session with a persistent cookie; otherwise short and browser-session only. */
+    remember: boolean("remember").notNull().default(true),
+    /** Device PIN (bcrypt) that unlocks the app on this session; null until the user sets one. */
+    pinHash: text("pin_hash"),
+    pinAttempts: integer("pin_attempts").notNull().default(0),
+    /** Last moment the app was unlocked or used; null forces the PIN screen. */
+    unlockedAt: timestamp("unlocked_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index("sessions_user_idx").on(t.userId)],

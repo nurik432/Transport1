@@ -198,7 +198,7 @@ async function main() {
   });
 
   // admin
-  await db.insert(s.users).values({ name: "Администратор", phone: "+992900000001", role: "admin", passwordHash: adminHash });
+  await db.insert(s.users).values({ name: "Администратор", phone: "+992900000001", role: "admin", isSuper: true, passwordHash: adminHash });
 
   // vehicles
   const vehicleRows = await db.insert(s.vehicles).values(VEHICLES).returning();

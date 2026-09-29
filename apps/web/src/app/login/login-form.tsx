@@ -34,6 +34,13 @@ export function LoginForm({ next }: { next?: string }) {
       <Field label="Пароль" error={state.error}>
         <input className={inputClass} name="password" type="password" autoComplete="current-password" required />
       </Field>
+      <label className="flex min-h-11 items-center gap-3 text-sm">
+        <input type="checkbox" name="remember" className="size-5 accent-primary" />
+        <span>
+          Запомнить меня
+          <span className="block text-xs text-muted-foreground">Вход без пароля 30 дней, на этом устройстве можно задать PIN</span>
+        </span>
+      </label>
       {state.error ? (
         <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-red-800">
           {state.error}

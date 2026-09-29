@@ -248,3 +248,24 @@ export const IconDrag = (p: SVGProps<SVGSVGElement>) => (
     <circle cx="15" cy="18" r="1" />
   </Base>
 );
+
+export const IconLock = (p: SVGProps<SVGSVGElement>) => (
+  <Base {...p}>
+    <rect x="4.5" y="10.5" width="15" height="10" rx="2" />
+    <path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" />
+  </Base>
+);
+
+export const IconBackspace = (p: SVGProps<SVGSVGElement>) => (
+  <Base {...p}>
+    <path d="M21 5H9l-6 7 6 7h12a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1Z" />
+    <path d="m14 9 4 6m0-6-4 6" />
+  </Base>
+);
+
+export const IconShield = (p: SVGProps<SVGSVGElement>) => (
+  <Base {...p}>
+    <path d="M12 3 5 6v5.5c0 4.4 3 7.9 7 9.5 4-1.6 7-5.1 7-9.5V6l-7-3Z" />
+    <path d="m9 12 2.2 2.2L15 10.5" />
+  </Base>
+);

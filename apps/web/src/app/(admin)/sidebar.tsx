@@ -15,6 +15,7 @@ import {
   IconRadar,
   IconRoute,
   IconSettings,
+  IconShield,
   IconStop,
   IconTrend,
   IconTruck,
@@ -41,7 +42,7 @@ interface NavGroup {
  * "Сейчас" is what is happening during the morning trips, "Анализ" is what
  * happened over the period, "Справочники" is what the panel is made of.
  */
-function groups(attention: number): NavGroup[] {
+function groups(attention: number, isSuper: boolean): NavGroup[] {
   return [
     {
       title: "Сейчас",
@@ -66,6 +67,8 @@ function groups(attention: number): NavGroup[] {
         { href: "/admin/vehicles", label: "Транспорт", icon: <IconTruck /> },
         { href: "/admin/drivers", label: "Водители", icon: <IconUser /> },
         { href: "/admin/passengers", label: "Пассажиры", icon: <IconUsers /> },
+        // Only the superadmin manages other admins.
+        ...(isSuper ? [{ href: "/admin/admins", label: "Администраторы", icon: <IconShield /> }] : []),
       ],
     },
     {
@@ -78,7 +81,7 @@ function groups(attention: number): NavGroup[] {
   ];
 }
 
-export function AdminSidebar({ userName, attentionCount = 0 }: { userName: string; attentionCount?: number }) {
+export function AdminSidebar({ userName, attentionCount = 0, isSuper = false }: { userName: string; attentionCount?: number; isSuper?: boolean }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
@@ -117,7 +120,7 @@ export function AdminSidebar({ userName, attentionCount = 0 }: { userName: strin
         </div>
 
         <nav aria-label="Разделы администратора" className="flex flex-col gap-3.5 px-3 py-2 lg:flex-1 lg:overflow-y-auto">
-          {groups(attentionCount).map((group, gi) => (
+          {groups(attentionCount, isSuper).map((group, gi) => (
             <div key={group.title ?? `group-${gi}`} className="flex flex-col gap-0.5">
               {group.title ? (
                 <span className="px-2.5 pb-1 text-[11px] font-bold tracking-[0.06em] text-subtle uppercase">

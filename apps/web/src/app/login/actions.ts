@@ -11,8 +11,9 @@ export async function loginAction(_prev: LoginState, formData: FormData): Promis
   const phone = String(formData.get("phone") ?? "");
   const password = String(formData.get("password") ?? "");
   const next = String(formData.get("next") ?? "");
+  const remember = formData.get("remember") === "on";
 
-  const result = await login(phone, password);
+  const result = await login(phone, password, remember);
   if (!result.ok) return { error: result.error };
 
   const target = next.startsWith("/") ? next : HOME_BY_ROLE[result.role];

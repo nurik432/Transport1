@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { eq } from "drizzle-orm";
-import { requireRole } from "@/lib/auth";
+import { getLockState, requireRole } from "@/lib/auth";
+import { PinSettings } from "@/components/pin-settings";
 import { db, schema } from "@/lib/db";
 import { getFavorites, listRoutes, listStops } from "@/lib/queries";
 import { RouteBadge } from "@/components/ui";
@@ -26,6 +27,7 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
 
 export default async function ProfilePage() {
   const user = await requireRole("passenger");
+  const lock = await getLockState();
 
   const [profileRows, favorites, routes, stops] = await Promise.all([
     db.select().from(schema.passengers).where(eq(schema.passengers.userId, user.id)).limit(1),
@@ -87,6 +89,13 @@ export default async function ProfilePage() {
               />
             </div>
           </details>
+        </section>
+
+        <section className="flex flex-col gap-2">
+          <SectionHeading>PIN-код</SectionHeading>
+          <div className="rounded-2xl bg-card p-4">
+            <PinSettings pinSet={lock.pinSet} remember={lock.remember} />
+          </div>
         </section>
 
         <section className="flex flex-col gap-2">

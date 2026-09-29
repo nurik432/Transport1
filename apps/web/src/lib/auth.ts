@@ -5,10 +5,10 @@ import { redirect } from "next/navigation";
 import { randomBytes } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { and, eq, gt } from "drizzle-orm";
+import { isLocked, sessionExpiresAt } from "@transport/domain";
 import { db, schema } from "./db";
 
 export const SESSION_COOKIE = "transport_session";
-const SESSION_DAYS = 30;
 
 export type Role = "passenger" | "driver" | "admin";
 
@@ -18,6 +18,8 @@ export interface SessionUser {
   phone: string;
   role: Role;
   status: "active" | "blocked";
+  /** Superadmin: manages other admins. Always false for non-admins. */
+  isSuper: boolean;
 }
 
 /** Home route for each role. */
@@ -38,6 +40,7 @@ export const getSessionUser = cache(async (): Promise<SessionUser | null> => {
       phone: schema.users.phone,
       role: schema.users.role,
       status: schema.users.status,
+      isSuper: schema.users.isSuper,
     })
     .from(schema.sessions)
     .innerJoin(schema.users, eq(schema.users.id, schema.sessions.userId))
@@ -46,6 +49,38 @@ export const getSessionUser = cache(async (): Promise<SessionUser | null> => {
   const user = rows[0];
   if (!user || user.status === "blocked") return null;
   return user as SessionUser;
+});
+
+/** Token of the current session cookie, or undefined. */
+export async function currentSessionToken(): Promise<string | undefined> {
+  return (await cookies()).get(SESSION_COOKIE)?.value;
+}
+
+export interface LockState {
+  /** This session has a device PIN. */
+  pinSet: boolean;
+  /** The app must be unlocked with the PIN before use. */
+  locked: boolean;
+  /** Session was started with "remember me"; only those may set a PIN. */
+  remember: boolean;
+}
+
+/** PIN and lock state of the current session. Cached per request. */
+export const getLockState = cache(async (): Promise<LockState> => {
+  const token = await currentSessionToken();
+  if (!token) return { pinSet: false, locked: false, remember: false };
+  const rows = await db
+    .select({ remember: schema.sessions.remember, pinHash: schema.sessions.pinHash, unlockedAt: schema.sessions.unlockedAt })
+    .from(schema.sessions)
+    .where(eq(schema.sessions.id, token))
+    .limit(1);
+  const row = rows[0];
+  if (!row) return { pinSet: false, locked: false, remember: false };
+  return {
+    pinSet: Boolean(row.pinHash),
+    locked: isLocked({ pinHash: row.pinHash, unlockedAt: row.unlockedAt, now: new Date() }),
+    remember: row.remember,
+  };
 });
 
 /** Require any signed-in user. Redirects to /login otherwise. */
@@ -65,10 +100,21 @@ export async function requireRole<R extends Role>(...roles: R[]): Promise<Sessio
   return user as SessionUser & { role: R };
 }
 
+/** Require the superadmin; other admins go back to the dashboard. */
+export async function requireSuper(): Promise<SessionUser & { role: "admin" }> {
+  const user = await requireRole("admin");
+  if (!user.isSuper) redirect(HOME_BY_ROLE.admin);
+  return user;
+}
+
 export type LoginResult = { ok: true; role: Role } | { ok: false; error: string };
 
-/** Verify credentials and start a session. Phone is matched loosely (digits only). */
-export async function login(phoneInput: string, password: string): Promise<LoginResult> {
+/**
+ * Verify credentials and start a session. Phone is matched loosely (digits only).
+ * With `remember` the session lasts 30 days and its cookie survives the browser;
+ * without it the session is short and the cookie is dropped when the browser closes.
+ */
+export async function login(phoneInput: string, password: string, remember = false): Promise<LoginResult> {
   const digits = phoneInput.replace(/\D/g, "");
   if (!digits || !password) return { ok: false, error: "Введите телефон и пароль" };
 
@@ -89,14 +135,16 @@ export async function login(phoneInput: string, password: string): Promise<Login
   if (!valid) return { ok: false, error: "Неверный пароль" };
 
   const token = randomBytes(32).toString("hex");
-  const expiresAt = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000);
-  await db.insert(schema.sessions).values({ id: token, userId: user.id, expiresAt });
+  const now = new Date();
+  const expiresAt = sessionExpiresAt(remember, now);
+  await db.insert(schema.sessions).values({ id: token, userId: user.id, expiresAt, remember, unlockedAt: now });
   (await cookies()).set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
     path: "/",
-    expires: expiresAt,
+    // No `expires` = session cookie, gone when the browser is closed.
+    ...(remember ? { expires: expiresAt } : {}),
   });
   return { ok: true, role: user.role as Role };
 }
@@ -111,6 +159,13 @@ export async function logout(): Promise<void> {
 
 export async function hashPassword(plain: string): Promise<string> {
   return bcrypt.hash(plain, 10);
+}
+
+/** Whether `password` is the signed-in user's current password. */
+export async function verifyOwnPassword(password: string): Promise<boolean> {
+  const user = await requireUser();
+  const rows = await db.select({ passwordHash: schema.users.passwordHash }).from(schema.users).where(eq(schema.users.id, user.id)).limit(1);
+  return Boolean(rows[0] && password && (await bcrypt.compare(password, rows[0].passwordHash)));
 }
 
 /** Change the signed-in user's own password after checking the current one. */

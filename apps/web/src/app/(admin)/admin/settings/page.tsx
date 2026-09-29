@@ -1,4 +1,5 @@
-import { requireRole } from "@/lib/auth";
+import { getLockState, requireRole } from "@/lib/auth";
+import { PinSettings } from "@/components/pin-settings";
 import { getThresholds } from "@/lib/queries";
 import { getDeviationSettings } from "@/lib/live";
 import { AdminMain, PageHeader } from "@/components/admin-ui";
@@ -9,6 +10,7 @@ import { ChangePasswordForm } from "./change-password-form";
 
 export default async function SettingsPage() {
   await requireRole("admin");
+  const lock = await getLockState();
   const [t, live] = await Promise.all([getThresholds(), getDeviationSettings()]);
 
   return (
@@ -19,6 +21,10 @@ export default async function SettingsPage() {
         <div className="flex flex-col gap-6">
           <ThresholdsForm thresholds={t} />
           <LiveSettingsForm settings={live} />
+          <Card>
+            <SectionTitle>PIN-код</SectionTitle>
+            <PinSettings pinSet={lock.pinSet} remember={lock.remember} />
+          </Card>
           <ChangePasswordForm />
         </div>
 
