@@ -7,6 +7,7 @@ import { getFavorites, listRoutes, listStops } from "@/lib/queries";
 import { RouteBadge } from "@/components/ui";
 import { IconChevronRight, IconHelp, IconHome, IconLogout, IconPin, IconSettings } from "@/components/icons";
 import { HomeAddressForm } from "./home-form";
+import { LazyDetails } from "./lazy-details";
 import { PushSetup } from "@/components/push-setup";
 import { VAPID_PUBLIC_KEY } from "@/lib/push";
 import { ChangePasswordForm } from "@/components/change-password-form";
@@ -68,19 +69,24 @@ export default async function ProfilePage() {
 
         <section className="flex flex-col gap-2">
           <SectionHeading>Домашний адрес</SectionHeading>
-          <details className="group rounded-2xl bg-card" open={!hasHome}>
-            <summary className="flex min-h-16 cursor-pointer list-none items-center gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
-              <IconHome className="size-5 text-primary" />
-              <span className="flex min-w-0 flex-1 flex-col">
-                <span className="truncate text-[15px] font-semibold">{profile?.homeAddress || "Адрес не указан"}</span>
-                <span className="text-sm text-muted-foreground">
-                  {hasHome
-                    ? "Если геолокация выключена, ищем остановку от этого адреса"
-                    : "Укажите адрес, чтобы видеть ближайшую остановку без геолокации"}
+          <LazyDetails
+            className="group rounded-2xl bg-card"
+            open={!hasHome}
+            summary={
+              <summary className="flex min-h-16 cursor-pointer list-none items-center gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
+                <IconHome className="size-5 text-primary" />
+                <span className="flex min-w-0 flex-1 flex-col">
+                  <span className="truncate text-[15px] font-semibold">{profile?.homeAddress || "Адрес не указан"}</span>
+                  <span className="text-sm text-muted-foreground">
+                    {hasHome
+                      ? "Если геолокация выключена, ищем остановку от этого адреса"
+                      : "Укажите адрес, чтобы видеть ближайшую остановку без геолокации"}
+                  </span>
                 </span>
-              </span>
-              <span className="text-sm font-semibold text-primary group-open:hidden">Изменить</span>
-            </summary>
+                <span className="text-sm font-semibold text-primary group-open:hidden">Изменить</span>
+              </summary>
+            }
+          >
             <div className="border-t border-border p-4">
               <HomeAddressForm
                 address={profile?.homeAddress ?? ""}
@@ -88,7 +94,7 @@ export default async function ProfilePage() {
                 lng={profile?.lng ?? null}
               />
             </div>
-          </details>
+          </LazyDetails>
         </section>
 
         <section className="flex flex-col gap-2">

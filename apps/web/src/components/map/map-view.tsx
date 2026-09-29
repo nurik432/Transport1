@@ -48,6 +48,17 @@ export interface MapVehicle {
   alert?: boolean;
 }
 
+/** A person on the map, e.g. a passenger waiting for the vehicle; the initial is drawn inside. */
+export interface MapPerson {
+  id: string;
+  lat: number;
+  lng: number;
+  label: string;
+  note?: string;
+  /** dims the marker when the position is old */
+  stale?: boolean;
+}
+
 /** A shaded area, used to show where a group of employees lives. */
 export interface MapArea {
   id: string;
@@ -65,6 +76,7 @@ export interface MapViewProps {
   areas?: MapArea[];
   lines?: MapLine[];
   vehicles?: MapVehicle[];
+  people?: MapPerson[];
   me?: { lat: number; lng: number } | null;
   className?: string;
   /** falls back to Khujand centre when there is nothing to show */
@@ -122,6 +134,17 @@ function vehicleIcon(v: MapVehicle): L.DivIcon {
         <path d="M5 17V6a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v11"/><path d="M5 11h14M4 17h16"/>
         <circle cx="8" cy="19" r="1.4"/><circle cx="16" cy="19" r="1.4"/>
       </svg></div>`,
+  });
+}
+
+function personIcon(p: MapPerson): L.DivIcon {
+  const initial = (p.label.trim()[0] ?? "?").toUpperCase().replace(/[<>&"']/g, "");
+  const opacity = p.stale ? "opacity:.55;" : "";
+  return L.divIcon({
+    className: "",
+    iconSize: [26, 26],
+    iconAnchor: [13, 13],
+    html: `<div style="${opacity}display:flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:9999px;background:#7c3aed;border:2px solid #fff;box-shadow:0 1px 4px rgba(15,23,42,.45);color:#fff;font:700 12px/1 system-ui,sans-serif">${initial}</div>`,
   });
 }
 
@@ -259,6 +282,7 @@ export default function MapView({
   areas = [],
   lines = [],
   vehicles = [],
+  people = [],
   me,
   className,
   center,
@@ -384,6 +408,14 @@ export default function MapView({
           <Popup>
             <span className="font-medium">{v.label}</span>
             {v.note ? <div className="text-xs text-slate-600">{v.note}</div> : null}
+          </Popup>
+        </Marker>
+      ))}
+      {people.map((p) => (
+        <Marker key={p.id} position={[p.lat, p.lng]} icon={personIcon(p)} zIndexOffset={400}>
+          <Popup>
+            <span className="font-medium">{p.label}</span>
+            {p.note ? <div className="text-xs text-slate-600">{p.note}</div> : null}
           </Popup>
         </Marker>
       ))}

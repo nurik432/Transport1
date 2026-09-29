@@ -7,11 +7,20 @@ import { changeOwnPassword, requireRole } from "@/lib/auth";
 import { markAllRead } from "@/lib/queries";
 
 /** Book a seat on a trip from a stop (intent, not a hard reservation). */
-export async function bookTrip(tripId: string, stopId: string): Promise<void> {
+export async function bookTrip(tripId: string, stopId: string): Promise<BookingResult> {
   const user = await requireRole("passenger");
 
   const trip = await db.select({ status: schema.trips.status }).from(schema.trips).where(eq(schema.trips.id, tripId)).limit(1);
-  if (!trip[0] || trip[0].status === "cancelled" || trip[0].status === "completed") return;
+  if (!trip[0]) return { error: "Рейс не найден" };
+  if (trip[0].status === "cancelled") return { error: "Рейс отменён" };
+  if (trip[0].status === "completed") return { error: "Рейс уже завершён" };
+
+  const profile = await db
+    .select({ id: schema.passengers.userId })
+    .from(schema.passengers)
+    .where(eq(schema.passengers.userId, user.id))
+    .limit(1);
+  if (!profile[0]) await db.insert(schema.passengers).values({ userId: user.id }).onConflictDoNothing();
 
   await db
     .insert(schema.passengerTrips)
@@ -23,16 +32,20 @@ export async function bookTrip(tripId: string, stopId: string): Promise<void> {
 
   revalidatePath("/app");
   revalidatePath(`/app/trips/${tripId}`);
+  return { ok: true };
 }
 
+export type BookingResult = { ok: true } | { error: string };
+
 /** Cancel the passenger's booking on a trip. */
-export async function cancelBooking(tripId: string): Promise<void> {
+export async function cancelBooking(tripId: string): Promise<BookingResult> {
   const user = await requireRole("passenger");
   await db
     .delete(schema.passengerTrips)
     .where(and(eq(schema.passengerTrips.tripId, tripId), eq(schema.passengerTrips.passengerId, user.id)));
   revalidatePath("/app");
   revalidatePath(`/app/trips/${tripId}`);
+  return { ok: true };
 }
 
 /** Add or remove a favorite route or stop. */

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { and, eq, ne } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
 import { changeOwnPassword, requireRole } from "@/lib/auth";
+import { clearPassengerPositions } from "@/lib/passenger-live";
 
 /** Load a trip and check it belongs to the signed-in driver. */
 async function ownedTrip(tripId: string) {
@@ -78,6 +79,7 @@ export async function finishTrip(tripId: string): Promise<void> {
     .update(schema.passengerTrips)
     .set({ status: "boarded" })
     .where(and(eq(schema.passengerTrips.tripId, tripId), ne(schema.passengerTrips.status, "cancelled")));
+  await clearPassengerPositions(tripId);
   refresh(tripId);
 }
 

@@ -1,4 +1,5 @@
 import { asc, desc, eq } from "drizzle-orm";
+import { canManageUser } from "@transport/domain";
 import { requireSuper } from "@/lib/auth";
 import { db, schema } from "@/lib/db";
 import { AdminMain, Cell, PageHeader, Row, Table } from "@/components/admin-ui";
@@ -38,7 +39,7 @@ export default async function AdminsPage() {
             <Cell>{a.isSuper ? "Суперадминистратор" : "Администратор"}</Cell>
             <Cell>{a.status === "blocked" ? <span className="text-danger">Заблокирован</span> : "Активен"}</Cell>
             <Cell>
-              {a.isSuper || a.id === me.id ? null : <AdminRowActions id={a.id} name={a.name} userStatus={a.status} />}
+              {canManageUser(me, { ...a, role: "admin" }) ? <AdminRowActions id={a.id} name={a.name} userStatus={a.status} /> : null}
             </Cell>
           </Row>
         ))}
