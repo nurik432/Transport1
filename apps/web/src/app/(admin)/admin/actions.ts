@@ -11,7 +11,7 @@ import {
   type RouteFormInput,
 } from "@transport/domain";
 import { db, schema } from "@/lib/db";
-import { hashPassword, requireRole } from "@/lib/auth";
+import { changeOwnPassword, hashPassword, requireRole } from "@/lib/auth";
 import { saveThresholds } from "@/lib/queries";
 import { notify } from "@/lib/push";
 import { rebuildAllRouteGeometry, rebuildVersionGeometry } from "@transport/db/routing";
@@ -893,6 +893,19 @@ const thresholdSchema = z.object({
   lowAvgPct: z.coerce.number().min(0).max(100),
   minTrips: z.coerce.number().int().min(1).max(100),
 });
+
+const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, "Введите текущий пароль"),
+  newPassword: z.string().min(6, "Пароль не короче 6 символов"),
+});
+
+export async function changeMyPassword(input: unknown): Promise<ActionResult> {
+  await requireRole("admin");
+  const data = parse(changePasswordSchema, input);
+  if (isError(data)) return fail(data.__error);
+  const result = await changeOwnPassword(data.currentPassword, data.newPassword);
+  return result.ok ? { ok: true, message: "Пароль изменён" } : fail(result.error);
+}
 
 export async function updateThresholds(input: unknown): Promise<ActionResult> {
   await requireRole("admin");

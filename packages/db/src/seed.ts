@@ -173,6 +173,7 @@ const DEPARTMENTS = ["Производство", "Бухгалтерия", "IT",
 
 // ---------- main ----------
 async function main() {
+  if (process.env.NODE_ENV === "production") throw new Error("refusing to seed test data into production");
   const db = createDb();
   const now = localNow();
   const today = now.date;

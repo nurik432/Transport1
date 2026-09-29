@@ -112,3 +112,19 @@ export async function logout(): Promise<void> {
 export async function hashPassword(plain: string): Promise<string> {
   return bcrypt.hash(plain, 10);
 }
+
+/** Change the signed-in user's own password after checking the current one. */
+export async function changeOwnPassword(
+  currentPassword: string,
+  newPassword: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const user = await requireUser();
+  if (newPassword.length < 6) return { ok: false, error: "Новый пароль не короче 6 символов" };
+
+  const rows = await db.select({ passwordHash: schema.users.passwordHash }).from(schema.users).where(eq(schema.users.id, user.id)).limit(1);
+  const valid = rows[0] && (await bcrypt.compare(currentPassword, rows[0].passwordHash));
+  if (!valid) return { ok: false, error: "Неверный текущий пароль" };
+
+  await db.update(schema.users).set({ passwordHash: await hashPassword(newPassword) }).where(eq(schema.users.id, user.id));
+  return { ok: true };
+}

@@ -24,6 +24,9 @@ RUN pnpm --filter web build
 # Self-contained migration script: the runtime image has no pnpm/tsx, and
 # Dokku runs it as the predeploy step (see app.json).
 RUN pnpm --filter @transport/db bundle:migrate
+# Self-contained one-off for bootstrapping the first real admin: not run
+# automatically, invoked manually with `dokku run <app> node packages/db/dist/create-admin.mjs`.
+RUN pnpm --filter @transport/db bundle:create-admin
 
 # ---- minimal runtime image ----
 FROM base AS runner
@@ -36,6 +39,7 @@ COPY --from=builder /repo/apps/web/public ./apps/web/public
 COPY --from=builder --chown=nextjs:nodejs /repo/apps/web/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /repo/apps/web/.next/static ./apps/web/.next/static
 COPY --from=builder /repo/packages/db/dist/migrate.mjs ./packages/db/dist/migrate.mjs
+COPY --from=builder /repo/packages/db/dist/create-admin.mjs ./packages/db/dist/create-admin.mjs
 COPY --from=builder /repo/packages/db/drizzle ./packages/db/drizzle
 USER nextjs
 EXPOSE 3000

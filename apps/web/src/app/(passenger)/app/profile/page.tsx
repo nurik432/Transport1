@@ -4,10 +4,12 @@ import { requireRole } from "@/lib/auth";
 import { db, schema } from "@/lib/db";
 import { getFavorites, listRoutes, listStops } from "@/lib/queries";
 import { RouteBadge } from "@/components/ui";
-import { IconChevronRight, IconHelp, IconHome, IconLogout, IconPin } from "@/components/icons";
+import { IconChevronRight, IconHelp, IconHome, IconLogout, IconPin, IconSettings } from "@/components/icons";
 import { HomeAddressForm } from "./home-form";
 import { PushSetup } from "@/components/push-setup";
 import { VAPID_PUBLIC_KEY } from "@/lib/push";
+import { ChangePasswordForm } from "@/components/change-password-form";
+import { changePassword } from "../actions";
 
 function initials(name: string): string {
   return name
@@ -83,6 +85,23 @@ export default async function ProfilePage() {
                 lat={profile?.lat ?? null}
                 lng={profile?.lng ?? null}
               />
+            </div>
+          </details>
+        </section>
+
+        <section className="flex flex-col gap-2">
+          <SectionHeading>Пароль</SectionHeading>
+          <details className="group rounded-2xl bg-card">
+            <summary className="flex min-h-16 cursor-pointer list-none items-center gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
+              <IconSettings className="size-5 text-primary" />
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="truncate text-[15px] font-semibold">Сменить пароль</span>
+                <span className="text-sm text-muted-foreground">Понадобится текущий пароль</span>
+              </span>
+              <span className="text-sm font-semibold text-primary group-open:hidden">Открыть</span>
+            </summary>
+            <div className="border-t border-border p-4">
+              <ChangePasswordForm action={changePassword} />
             </div>
           </details>
         </section>

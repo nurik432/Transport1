@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { and, eq } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
-import { requireRole } from "@/lib/auth";
+import { changeOwnPassword, requireRole } from "@/lib/auth";
 import { markAllRead } from "@/lib/queries";
 
 /** Book a seat on a trip from a stop (intent, not a hard reservation). */
@@ -76,4 +76,9 @@ export async function readNotifications(): Promise<void> {
   const user = await requireRole("passenger");
   await markAllRead(user.id);
   revalidatePath("/app/notifications");
+}
+
+export async function changePassword(currentPassword: string, newPassword: string) {
+  await requireRole("passenger");
+  return changeOwnPassword(currentPassword, newPassword);
 }

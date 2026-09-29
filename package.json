@@ -15,6 +15,7 @@
     "db:generate": "pnpm --filter @transport/db generate",
     "db:migrate": "pnpm --filter @transport/db migrate",
     "db:seed": "pnpm --filter @transport/db seed",
+    "db:create-admin": "pnpm --filter @transport/db create-admin",
     "db:reset": "pnpm --filter @transport/db reset",
     "db:geometry": "pnpm --filter @transport/db geometry",
     "docker:up": "docker compose up -d --build",
@@ -22,6 +23,7 @@
     "docker:logs": "docker compose logs -f web",
     "docker:migrate": "docker compose run --rm migrate",
     "docker:seed": "docker compose run --rm tools pnpm --filter @transport/db seed",
+    "docker:create-admin": "docker compose run --rm tools pnpm --filter @transport/db create-admin",
     "docker:reset": "docker compose run --rm tools pnpm --filter @transport/db reset"
   }
 }

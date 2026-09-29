@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { and, eq, ne } from "drizzle-orm";
 import { db, schema } from "@/lib/db";
-import { requireRole } from "@/lib/auth";
+import { changeOwnPassword, requireRole } from "@/lib/auth";
 
 /** Load a trip and check it belongs to the signed-in driver. */
 async function ownedTrip(tripId: string) {
@@ -79,4 +79,9 @@ export async function finishTrip(tripId: string): Promise<void> {
     .set({ status: "boarded" })
     .where(and(eq(schema.passengerTrips.tripId, tripId), ne(schema.passengerTrips.status, "cancelled")));
   refresh(tripId);
+}
+
+export async function changePassword(currentPassword: string, newPassword: string) {
+  await requireRole("driver");
+  return changeOwnPassword(currentPassword, newPassword);
 }

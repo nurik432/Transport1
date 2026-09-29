@@ -5,6 +5,7 @@ import { AdminMain, PageHeader } from "@/components/admin-ui";
 import { Card, SectionTitle } from "@/components/ui";
 import { ThresholdsForm } from "./thresholds-form";
 import { LiveSettingsForm } from "./live-form";
+import { ChangePasswordForm } from "./change-password-form";
 
 export default async function SettingsPage() {
   await requireRole("admin");
@@ -18,6 +19,7 @@ export default async function SettingsPage() {
         <div className="flex flex-col gap-6">
           <ThresholdsForm thresholds={t} />
           <LiveSettingsForm settings={live} />
+          <ChangePasswordForm />
         </div>
 
         <Card className="text-sm">

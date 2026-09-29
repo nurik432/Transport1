@@ -4,9 +4,11 @@ import { requireRole } from "@/lib/auth";
 import { db, schema } from "@/lib/db";
 import { getDriverTrips } from "@/lib/queries";
 import Link from "next/link";
-import { IconBus, IconChevronRight, IconHelp, IconLogout } from "@/components/icons";
+import { IconBus, IconChevronRight, IconHelp, IconLogout, IconSettings } from "@/components/icons";
 import { PushSetup } from "@/components/push-setup";
 import { VAPID_PUBLIC_KEY } from "@/lib/push";
+import { ChangePasswordForm } from "@/components/change-password-form";
+import { changePassword } from "../actions";
 
 /** Up to two initials for the avatar, e.g. "Рустам Каримов" → "РК". */
 function initials(name: string): string {
@@ -113,6 +115,25 @@ export default async function DriverProfile() {
             </span>
             <IconChevronRight className="size-4 shrink-0 text-muted-foreground" />
           </Link>
+        </section>
+
+        <section className="flex flex-col gap-2">
+          <h2 className="mx-1 text-[13px] font-semibold text-muted-foreground">Пароль</h2>
+          <details className="group rounded-2xl bg-card">
+            <summary className="flex min-h-14 cursor-pointer list-none items-center gap-3 px-3.5 [&::-webkit-details-marker]:hidden">
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary-soft text-primary">
+                <IconSettings className="size-5.5" />
+              </span>
+              <span className="flex min-w-0 flex-1 flex-col">
+                <span className="text-[15px] font-semibold">Сменить пароль</span>
+                <span className="truncate text-[13px] text-muted-foreground">Понадобится текущий пароль</span>
+              </span>
+              <span className="text-sm font-semibold text-primary group-open:hidden">Открыть</span>
+            </summary>
+            <div className="border-t border-border p-3.5">
+              <ChangePasswordForm action={changePassword} />
+            </div>
+          </details>
         </section>
 
         <form action="/logout" method="post">

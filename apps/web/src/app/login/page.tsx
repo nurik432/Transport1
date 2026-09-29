@@ -27,15 +27,6 @@ export default async function LoginPage({
       <Card className="p-5">
         <LoginForm next={next} />
       </Card>
-
-      <Card className="bg-muted text-xs text-muted-foreground">
-        <p className="mb-2 font-medium text-foreground">Демо-доступы</p>
-        <ul className="flex flex-col gap-1">
-          <li>Администратор: +992900000001 / admin123</li>
-          <li>Водитель: +992900000101 / driver123</li>
-          <li>Пассажир: +992910000001 / pass123</li>
-        </ul>
-      </Card>
     </main>
   );
 }
