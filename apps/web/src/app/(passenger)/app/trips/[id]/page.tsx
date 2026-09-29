@@ -4,9 +4,7 @@ import { requireRole } from "@/lib/auth";
 import { getTrip } from "@/lib/queries";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { MobileHeader } from "@/components/mobile-shell";
-import { IconBus, IconCheck } from "@/components/icons";
-import { BookButton } from "../../book-button";
-import { TripLivePanel } from "./live-panel";
+import { TripBoarding } from "./trip-boarding";
 import { WalkToStop } from "./walk-to-stop";
 
 export default async function TripPage({ params }: { params: Promise<{ id: string }> }) {
@@ -18,9 +16,8 @@ export default async function TripPage({ params }: { params: Promise<{ id: strin
 
   const open = trip.status === "planned" || trip.status === "in_progress";
   const myStopId = trip.bookedByMe?.stopId;
-  const boardingStop = myStopId ? trip.stops.find((s) => s.stopId === myStopId) : undefined;
-  const nextStop = trip.stops.find((s) => !s.arrivedAt);
-  const defaultStop = boardingStop ?? nextStop ?? trip.stops[0];
+  // Without a booking, boarding defaults to the next stop the vehicle hasn't reached.
+  const defaultStop = trip.stops.find((s) => !s.arrivedAt) ?? trip.stops[0];
   const free = freeSeats(trip.vehicle?.capacity, trip.bookedTotal);
 
   const seatsLine = trip.vehicle
@@ -39,13 +36,16 @@ export default async function TripPage({ params }: { params: Promise<{ id: strin
       />
 
       <main className="mx-auto flex w-full max-w-md flex-col gap-4 px-4 py-4">
-        <TripLivePanel
+        <TripBoarding
           tripId={trip.id}
           status={trip.status}
           routeName={trip.route.name}
           routeColor={trip.route.color}
           routeLine={trip.route.path}
-          myStopId={myStopId}
+          bookedStopId={myStopId}
+          defaultStopId={defaultStop?.stopId}
+          seatsLine={seatsLine}
+          vehicle={trip.vehicle ? { model: trip.vehicle.model, number: trip.vehicle.number } : null}
           stops={trip.stops.map((s) => ({
             stopId: s.stopId,
             name: s.name,
@@ -55,45 +55,7 @@ export default async function TripPage({ params }: { params: Promise<{ id: strin
             arrivedAt: s.arrivedAt ? s.arrivedAt.toISOString() : null,
             waiting: s.waiting,
           }))}
-        >
-          {open && boardingStop ? (
-            <section aria-label="Ваша поездка" className="flex items-center gap-3 rounded-2xl bg-card px-3.5 py-3">
-              <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ok-soft text-ok">
-                <IconCheck className="size-4.5" />
-              </span>
-              <p className="min-w-0 flex-1 text-sm leading-snug">
-                <strong>Вы едете</strong> с «{boardingStop.name}»
-                {seatsLine ? <span className="block text-muted-foreground">{seatsLine}</span> : null}
-              </p>
-              <BookButton
-                tripId={trip.id}
-                stopId={boardingStop.stopId}
-                booked
-                cancelLabel="Отменить"
-                tone="quiet"
-              />
-            </section>
-          ) : open && defaultStop ? (
-            <section aria-label="Бронь" className="flex flex-col gap-2 rounded-2xl bg-card p-3.5">
-              {seatsLine ? <p className="text-sm text-muted-foreground">{seatsLine}</p> : null}
-              <BookButton
-                tripId={trip.id}
-                stopId={defaultStop.stopId}
-                booked={false}
-                bookLabel={`Поеду с «${defaultStop.name}»`}
-                size="lg"
-                className="w-full"
-              />
-            </section>
-          ) : null}
-
-          {trip.vehicle ? (
-            <p className="flex items-center gap-1.5 px-1 text-sm text-muted-foreground">
-              <IconBus className="size-4" />
-              {trip.vehicle.model}, {trip.vehicle.number}
-            </p>
-          ) : null}
-        </TripLivePanel>
+        />
 
         {open ? (
           <WalkToStop
