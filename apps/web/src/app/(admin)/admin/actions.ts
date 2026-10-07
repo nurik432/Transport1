@@ -17,6 +17,15 @@ import { saveThresholds } from "@/lib/queries";
 import { notify } from "@/lib/push";
 import { rebuildAllRouteGeometry, rebuildVersionGeometry } from "@transport/db/routing";
 import { saveDeviationSettings } from "@/lib/live";
+import {
+  attachPassenger,
+  bookSubscribers,
+  countDroppedSubscriptions,
+  detachSubscription,
+  dropPassengerRides,
+  dropSubscriptions,
+  type SubscriptionRow,
+} from "@/lib/subscriptions";
 
 export interface ActionResult {
   ok: boolean;
@@ -357,6 +366,8 @@ export async function saveRoute(input: unknown): Promise<ActionResult> {
 
   if (toDelete.length) {
     const ids = toDelete.map((s) => s.id);
+    // Standing bookings go with the departure; the passengers have to pick another one.
+    await notifyDroppedSubscriptions(await dropSubscriptions({ scheduleIds: ids }), "departure");
     // Keep history: planned future trips of removed departures are cancelled.
     await db.update(schema.trips).set({ status: "cancelled" }).where(
       and(inArray(schema.trips.scheduleId, ids), eq(schema.trips.status, "planned")),
@@ -372,6 +383,13 @@ export async function saveRoute(input: unknown): Promise<ActionResult> {
     .update(schema.routeSchedules)
     .set({ daysOfWeek: data.daysOfWeek })
     .where(eq(schema.routeSchedules.routeId, routeId));
+
+  if (shapeChanged) {
+    // A stop that left the route cannot be boarded at any more.
+    const kept = existingSchedules.filter((s) => wanted.has(s.departureTime.slice(0, 5))).map((s) => s.id);
+    const dropped = await dropSubscriptions({ scheduleIds: kept, keepStopIds: resolved.map((s) => s.stopId) });
+    await notifyDroppedSubscriptions(dropped, "stop");
+  }
 
   // Geometry belongs to the shape, so it is only rebuilt for a new version.
   const geometry = newVersion ? await rebuildVersionGeometry(db, newVersion.versionId) : null;
@@ -403,6 +421,8 @@ export interface SaveImpact {
   /** planned trips that will move onto the new shape */
   movedTripCount: number;
   notifiedUserCount: number;
+  /** standing bookings that lose their departure or their stop */
+  droppedSubscriptionCount: number;
   /** points that will be added to the stop directory */
   newStopNames: string[];
 }
@@ -494,6 +514,16 @@ export async function describeRouteSave(
     ).size;
   }
 
+  const keptStopIds = data.stops.map((s) => s.stopId).filter((id): id is string => Boolean(id));
+  const droppedSubscriptionCount =
+    (await countDroppedSubscriptions({ scheduleIds: removed.map((r) => r.id) })) +
+    (shapeChanged
+      ? await countDroppedSubscriptions({
+          scheduleIds: schedules.filter((s) => wanted.has(s.departureTime.slice(0, 5))).map((s) => s.id),
+          keepStopIds: keptStopIds,
+        })
+      : 0);
+
   return {
     ok: true,
     impact: {
@@ -505,6 +535,7 @@ export async function describeRouteSave(
       cancelledTripCount,
       movedTripCount,
       notifiedUserCount,
+      droppedSubscriptionCount,
       newStopNames: data.stops.filter((s) => !s.stopId).map((s) => s.name?.trim() || "Новая остановка"),
     },
   };
@@ -533,6 +564,22 @@ async function notifyRouteAudience(routeId: string, _adminId: string, routeName:
     tag: `route-${routeId}`,
     payload: { routeId },
   });
+}
+
+/** Tell passengers their standing booking is gone because the route changed under it. */
+async function notifyDroppedSubscriptions(dropped: SubscriptionRow[], reason: "departure" | "stop"): Promise<void> {
+  for (const s of dropped) {
+    await notify([s.passengerId], reason === "departure" ? "schedule_changed" : "route_changed", {
+      title:
+        reason === "departure"
+          ? `Рейс ${s.departureTime} маршрута ${s.routeName} убран из расписания`
+          : `Остановка «${s.stopName}» убрана из маршрута ${s.routeName}`,
+      body: `Привязка к рейсу ${s.departureTime} снята. Выберите другой рейс, чтобы ездить постоянно.`,
+      url: `/app/routes/${s.routeId}`,
+      tag: `subscription-${s.id}`,
+      payload: { routeId: s.routeId },
+    });
+  }
 }
 
 export async function deleteRoute(id: string): Promise<ActionResult> {
@@ -731,9 +778,64 @@ export async function setUserStatus(userId: string, status: "active" | "blocked"
   const target = await getManageable(actor, userId);
   if ("ok" in target) return target;
   await db.update(schema.users).set({ status }).where(eq(schema.users.id, userId));
-  if (status === "blocked") await db.delete(schema.sessions).where(eq(schema.sessions.userId, userId));
+  if (status === "blocked") {
+    await db.delete(schema.sessions).where(eq(schema.sessions.userId, userId));
+    // Someone who can no longer sign in must not keep counting as demand.
+    if (target.role === "passenger") await dropPassengerRides(userId);
+  }
   refreshAdmin("/admin/drivers", "/admin/passengers", "/admin/admins");
   return { ok: true, message: status === "blocked" ? "Доступ заблокирован" : "Доступ восстановлен" };
+}
+
+// ---------------------------------------------------------------- standing bookings
+
+const subscribeSchema = z.object({
+  passengerId: z.string().uuid(),
+  scheduleId: z.string().uuid("Выберите рейс"),
+  stopId: z.string().uuid("Выберите остановку"),
+});
+
+/** Attach a passenger to a departure on their behalf. */
+export async function adminSubscribe(input: unknown): Promise<ActionResult> {
+  const admin = await requireRole("admin");
+  const data = parse(subscribeSchema, input);
+  if (isError(data)) return fail(data.__error);
+
+  const result = await attachPassenger({ ...data, actorId: admin.id });
+  if (!result.ok) return fail(result.error);
+
+  const s = result.subscription;
+  await notify([data.passengerId], "admin_message", {
+    title: `Вас привязали к рейсу ${s.departureTime} маршрута ${s.routeName}`,
+    body: `Посадка на остановке «${s.stopName}». Отметка «Поеду» будет ставиться сама; отвязаться можно в профиле.`,
+    url: `/app/routes/${s.routeId}`,
+    tag: `subscription-${s.id}`,
+    payload: { routeId: s.routeId },
+  });
+  refreshAdmin("/admin/passengers", "/admin/trips", "/app");
+  return {
+    ok: true,
+    message: result.replaced
+      ? `Привязан к рейсу ${s.departureTime} вместо ${result.replaced.departureTime}`
+      : `Привязан к рейсу ${s.departureTime}`,
+  };
+}
+
+export async function adminUnsubscribe(subscriptionId: string): Promise<ActionResult> {
+  await requireRole("admin");
+  if (!z.string().uuid().safeParse(subscriptionId).success) return fail("Привязка не найдена");
+  const removed = await detachSubscription(subscriptionId);
+  if (!removed) return fail("Привязка не найдена");
+
+  await notify([removed.passengerId], "admin_message", {
+    title: `Привязка к рейсу ${removed.departureTime} маршрута ${removed.routeName} снята`,
+    body: "Администратор снял постоянную запись. Привязаться снова можно на странице маршрута.",
+    url: `/app/routes/${removed.routeId}`,
+    tag: `subscription-${removed.id}`,
+    payload: { routeId: removed.routeId },
+  });
+  refreshAdmin("/admin/passengers", "/admin/trips", "/app");
+  return { ok: true, message: "Привязка снята" };
 }
 
 // ---------------------------------------------------------------- admins
@@ -864,8 +966,13 @@ export async function generateTrips(input: unknown): Promise<ActionResult> {
 
   if (!rows.length) return { ok: true, message: "Все рейсы на этот период уже созданы" };
   await db.insert(schema.trips).values(rows).onConflictDoNothing();
-  refreshAdmin("/admin/trips");
-  return { ok: true, message: `Создано рейсов: ${rows.length}` };
+  // Passengers with a standing booking are booked on the new trips straight away.
+  const booked = await bookSubscribers([...new Set(rows.map((r) => r.scheduleId!))]);
+  refreshAdmin("/admin/trips", "/app");
+  return {
+    ok: true,
+    message: booked ? `Создано рейсов: ${rows.length}, записей постоянных пассажиров: ${booked}` : `Создано рейсов: ${rows.length}`,
+  };
 }
 
 export async function assignTrip(tripId: string, vehicleId: string | null, driverId: string | null): Promise<ActionResult> {

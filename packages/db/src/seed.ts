@@ -1,9 +1,10 @@
 import "dotenv/config";
 import { eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
-import { addDays, localDateTime, localNow, parseTimeToMinutes, weekdayOfDate } from "@transport/domain";
+import { addDays, formatMinutes, localDateTime, localNow, parseTimeToMinutes, weekdayOfDate } from "@transport/domain";
 import { createDb } from "./client";
 import { rebuildAllRouteGeometry } from "./routing";
+import { materializeSubscriptions } from "./subscriptions";
 import * as s from "./schema";
 
 /*
@@ -455,6 +456,24 @@ async function main() {
       }
     }
   }
+
+  // Standing bookings: every fourth passenger rides their usual departures without
+  // booking each day. The demo passenger (the first one) is left to try it by hand.
+  const regulars = passengerCtxs.filter((_, i) => i > 0 && i % 4 === 0);
+  await db.insert(s.passengerSubscriptions).values(
+    regulars.flatMap((p) =>
+      routeCtxs
+        .filter((rc) => rc.line === p.line)
+        .map((rc) => ({
+          passengerId: p.userId,
+          scheduleId: rc.schedules[rc.direction === "to_work" ? p.morningIdx : p.eveningIdx]!.id,
+          stopId: rc.direction === "to_work" ? stopId.get(p.homeStopKey)! : stopId.get("office")!,
+          createdBy: p.userId,
+        })),
+    ),
+  );
+  const standing = await materializeSubscriptions(db, { today, nowTime: formatMinutes(now.minutes) });
+  console.log(`standing bookings: ${regulars.length} passengers, ${standing} bookings added to planned trips`);
 
   // notifications
   const somePassengers = passengerCtxs.slice(0, 20);

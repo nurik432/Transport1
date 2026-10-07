@@ -3,10 +3,14 @@ import { eq } from "drizzle-orm";
 import { getLockState, requireRole } from "@/lib/auth";
 import { PinSettings } from "@/components/pin-settings";
 import { db, schema } from "@/lib/db";
+import { localNow, pauseLabel } from "@transport/domain";
 import { getFavorites, listRoutes, listStops } from "@/lib/queries";
+import { listSubscriptions } from "@/lib/subscriptions";
 import { RouteBadge } from "@/components/ui";
-import { IconChevronRight, IconHelp, IconHome, IconLogout, IconPin, IconSettings } from "@/components/icons";
+import { IconCalendar, IconChevronRight, IconHelp, IconHome, IconLogout, IconPin, IconSettings } from "@/components/icons";
 import { HomeAddressForm } from "./home-form";
+import { PauseForm } from "./pause-form";
+import { UnsubscribeButton } from "../subscribe-button";
 import { LazyDetails } from "./lazy-details";
 import { PushSetup } from "@/components/push-setup";
 import { VAPID_PUBLIC_KEY } from "@/lib/push";
@@ -30,13 +34,18 @@ export default async function ProfilePage() {
   const user = await requireRole("passenger");
   const lock = await getLockState();
 
-  const [profileRows, favorites, routes, stops] = await Promise.all([
+  const [profileRows, favorites, routes, stops, subscriptions] = await Promise.all([
     db.select().from(schema.passengers).where(eq(schema.passengers.userId, user.id)).limit(1),
     getFavorites(user.id),
     listRoutes(true),
     listStops(),
+    listSubscriptions(user.id),
   ]);
   const profile = profileRows[0];
+  const today = localNow().date;
+  const pause = { from: profile?.pauseFrom ?? null, to: profile?.pauseTo ?? null };
+  const pauseText = pauseLabel(pause, today);
+  const pauseActive = pauseText !== null;
   const favRoutes = routes.filter((r) => favorites.routeIds.has(r.id));
   const favStops = stops.filter((s) => favorites.stopIds.has(s.id));
   const hasHome = profile?.lat != null && profile?.lng != null;
@@ -65,6 +74,58 @@ export default async function ProfilePage() {
             vapidPublicKey={VAPID_PUBLIC_KEY}
             hint="Сообщим за несколько минут до подъезда транспорта, а также о задержках и изменениях маршрута."
           />
+        </section>
+
+        <section className="flex flex-col gap-2">
+          <SectionHeading>Постоянные рейсы</SectionHeading>
+          {subscriptions.length === 0 ? (
+            <p className="rounded-2xl bg-card px-4 py-4 text-sm text-muted-foreground">
+              Ездите одним и тем же рейсом? Откройте маршрут, выберите время и остановку и нажмите «Ездить рейсом
+              постоянно» — отметка «Поеду» будет ставиться сама.
+            </p>
+          ) : (
+            <>
+              <ul className="flex flex-col divide-y divide-border overflow-hidden rounded-2xl bg-card">
+                {subscriptions.map((s) => (
+                  <li key={s.id} className="flex min-h-16 items-center gap-3 px-4 py-2.5">
+                    <RouteBadge name={s.routeName} color={s.routeColor} size="md" />
+                    <Link href={`/app/routes/${s.routeId}?dep=${s.departureTime}`} className="flex min-w-0 flex-1 flex-col">
+                      <span className="truncate text-[15px] font-semibold">
+                        {s.direction === "to_work" ? "На работу" : "Домой"} в {s.departureTime}
+                      </span>
+                      <span className="truncate text-sm text-muted-foreground">Посадка: {s.stopName}</span>
+                    </Link>
+                    <UnsubscribeButton subscriptionId={s.id} />
+                  </li>
+                ))}
+              </ul>
+              <details className="group rounded-2xl bg-card" open={pauseActive}>
+                <summary className="flex min-h-16 cursor-pointer list-none items-center gap-3 px-4 py-3 [&::-webkit-details-marker]:hidden">
+                  <IconCalendar className="size-5 text-primary" />
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate text-[15px] font-semibold">{pauseText ?? "Отпуск или больничный"}</span>
+                    <span className="text-sm text-muted-foreground">
+                      {pauseActive
+                        ? "В эти дни отметки «Поеду» не ставятся, потом вернутся сами"
+                        : "Поставьте паузу — отвязываться от рейсов не нужно"}
+                    </span>
+                  </span>
+                  <span className="text-sm font-semibold text-primary group-open:hidden">
+                    {pauseActive ? "Изменить" : "Указать"}
+                  </span>
+                </summary>
+                <div className="border-t border-border p-4">
+                  <PauseForm
+                    key={`${pause.from}:${pause.to}`}
+                    from={pauseActive ? (pause.from ?? "") : ""}
+                    to={pauseActive ? (pause.to ?? "") : ""}
+                    today={today}
+                    active={pauseActive}
+                  />
+                </div>
+              </details>
+            </>
+          )}
         </section>
 
         <section className="flex flex-col gap-2">

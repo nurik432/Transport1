@@ -20,6 +20,7 @@ export function TripBoarding({
   routeLine,
   bookedStopId,
   defaultStopId,
+  standing = false,
   seatsLine,
   vehicle,
 }: {
@@ -32,6 +33,8 @@ export function TripBoarding({
   bookedStopId?: string;
   /** preselected when nothing is booked */
   defaultStopId?: string;
+  /** the passenger has a standing booking for this departure */
+  standing?: boolean;
   seatsLine: string | null;
   vehicle: { model: string; number: string } | null;
 }) {
@@ -69,10 +72,16 @@ export function TripBoarding({
             <IconCheck className="size-4.5" />
           </span>
           <p className="min-w-0 flex-1 text-sm leading-snug">
-            <strong>Вы едете</strong> с «{booked.name}»
+            <strong>Вы едете</strong> с «{booked.name}»{standing ? " · постоянный рейс" : ""}
             {seatsLine ? <span className="block text-muted-foreground">{seatsLine}</span> : null}
           </p>
-          <BookButton tripId={tripId} stopId={booked.stopId} booked cancelLabel="Отменить" tone="quiet" />
+          <BookButton
+            tripId={tripId}
+            stopId={booked.stopId}
+            booked
+            cancelLabel={standing ? "Не поеду в этот день" : "Отменить"}
+            tone="quiet"
+          />
         </section>
       ) : open && booked && chosen ? (
         <section aria-label="Смена остановки" className="flex flex-col gap-2 rounded-2xl bg-card p-3.5">
@@ -93,6 +102,11 @@ export function TripBoarding({
       ) : open && chosen ? (
         <section aria-label="Бронь" className="flex flex-col gap-2 rounded-2xl bg-card p-3.5">
           {seatsLine ? <p className="text-sm text-muted-foreground">{seatsLine}</p> : null}
+          {standing ? (
+            <p className="text-sm text-muted-foreground">
+              В этот день вы не едете. Привязка к рейсу сохраняется — в остальные дни отметка ставится сама.
+            </p>
+          ) : null}
           <BookButton
             key={chosen.stopId}
             tripId={tripId}

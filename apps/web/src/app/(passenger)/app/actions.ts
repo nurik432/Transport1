@@ -2,9 +2,17 @@
 
 import { revalidatePath } from "next/cache";
 import { and, eq, sql } from "drizzle-orm";
+import { z } from "zod";
 import { db, schema } from "@/lib/db";
 import { changeOwnPassword, requireRole } from "@/lib/auth";
 import { markAllRead } from "@/lib/queries";
+import {
+  attachPassenger,
+  clearRidePause,
+  detachSubscription,
+  setRidePause,
+  tripSubscription,
+} from "@/lib/subscriptions";
 
 /** Book a seat on a trip from a stop (intent, not a hard reservation). */
 export async function bookTrip(tripId: string, stopId: string): Promise<BookingResult> {
@@ -65,14 +73,73 @@ export async function bookTrip(tripId: string, stopId: string): Promise<BookingR
 
 export type BookingResult = { ok: true } | { error: string };
 
-/** Cancel the passenger's booking on a trip. */
+/**
+ * Cancel the passenger's booking on a trip.
+ *
+ * On a subscribed departure the booking is kept as `cancelled` — "not today" —
+ * because a deleted row would be created again from the subscription.
+ */
 export async function cancelBooking(tripId: string): Promise<BookingResult> {
   const user = await requireRole("passenger");
-  await db
-    .delete(schema.passengerTrips)
-    .where(and(eq(schema.passengerTrips.tripId, tripId), eq(schema.passengerTrips.passengerId, user.id)));
+  const mine = and(eq(schema.passengerTrips.tripId, tripId), eq(schema.passengerTrips.passengerId, user.id));
+  if (await tripSubscription(user.id, tripId)) {
+    await db.update(schema.passengerTrips).set({ status: "cancelled" }).where(mine);
+  } else {
+    await db.delete(schema.passengerTrips).where(mine);
+  }
   revalidatePath("/app");
   revalidatePath(`/app/trips/${tripId}`);
+  return { ok: true };
+}
+
+export interface RideActionResult {
+  ok: boolean;
+  error?: string;
+}
+
+const idSchema = z.string().uuid();
+
+function refreshRides(routeId?: string): void {
+  revalidatePath("/app");
+  revalidatePath("/app/profile");
+  if (routeId) revalidatePath(`/app/routes/${routeId}`);
+}
+
+/** Ride this departure from this stop every day it runs, without booking each trip. */
+export async function subscribeToDeparture(scheduleId: string, stopId: string): Promise<RideActionResult> {
+  const user = await requireRole("passenger");
+  if (!idSchema.safeParse(scheduleId).success || !idSchema.safeParse(stopId).success) {
+    return { ok: false, error: "Рейс не найден" };
+  }
+  const result = await attachPassenger({ passengerId: user.id, scheduleId, stopId, actorId: user.id });
+  if (!result.ok) return result;
+  refreshRides(result.subscription.routeId);
+  return { ok: true };
+}
+
+/** Stop riding a departure: the subscription and its upcoming bookings are removed. */
+export async function unsubscribe(subscriptionId: string): Promise<RideActionResult> {
+  const user = await requireRole("passenger");
+  if (!idSchema.safeParse(subscriptionId).success) return { ok: false, error: "Привязка не найдена" };
+  const removed = await detachSubscription(subscriptionId, user.id);
+  if (!removed) return { ok: false, error: "Привязка не найдена" };
+  refreshRides(removed.routeId);
+  return { ok: true };
+}
+
+/** "I am away from … to …": no bookings are made for these dates. */
+export async function pauseRides(from: string, to: string): Promise<RideActionResult> {
+  const user = await requireRole("passenger");
+  const result = await setRidePause(user.id, from, to);
+  if (!result.ok) return result;
+  refreshRides();
+  return { ok: true };
+}
+
+export async function resumeRides(): Promise<RideActionResult> {
+  const user = await requireRole("passenger");
+  await clearRidePause(user.id);
+  refreshRides();
   return { ok: true };
 }
 
