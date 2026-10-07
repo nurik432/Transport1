@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, eq, gte, inArray, isNotNull, lte, sql } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, isNotNull, lte, ne, sql } from "drizzle-orm";
 import {
   addDays,
   clusterHomes,
@@ -280,7 +280,15 @@ export async function getPassengersLeftBehind(from: string, to: string): Promise
     .innerJoin(routes, eq(routes.id, trips.routeId))
     .innerJoin(users, eq(users.id, schema.passengerTrips.passengerId))
     .innerJoin(vehicles, eq(vehicles.id, trips.vehicleId))
-    .where(and(gte(trips.date, from), lte(trips.date, to), inArray(trips.status, ["planned", "in_progress", "completed"])))
+    .where(
+      and(
+        gte(trips.date, from),
+        lte(trips.date, to),
+        inArray(trips.status, ["planned", "in_progress", "completed"]),
+        // a declined day of a standing booking is not a seat request
+        ne(schema.passengerTrips.status, "cancelled"),
+      ),
+    )
     .orderBy(asc(trips.date), asc(trips.startTime), asc(schema.passengerTrips.createdAt));
 
   const byTrip = new Map<string, PassengerLeftBehind>();

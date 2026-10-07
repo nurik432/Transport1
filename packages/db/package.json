@@ -8,7 +8,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./schema": "./src/schema.ts",
-    "./routing": "./src/routing.ts"
+    "./routing": "./src/routing.ts",
+    "./subscriptions": "./src/subscriptions.ts"
   },
   "scripts": {
     "generate": "drizzle-kit generate",

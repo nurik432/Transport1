@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { eq } from "drizzle-orm";
-import { addDays, formatDistance, formatLocalDate, localNow, nearestStops } from "@transport/domain";
+import { addDays, formatDistance, formatLocalDate, localNow, nearestStops, pauseLabel } from "@transport/domain";
 import { requireRole } from "@/lib/auth";
 import { db, schema } from "@/lib/db";
 import { getUpcomingArrivals, listStops } from "@/lib/queries";
+import { listSubscriptions } from "@/lib/subscriptions";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { LocationSync } from "@/components/location-sync";
 import { LogoutButton } from "@/components/mobile-shell";
@@ -48,9 +49,15 @@ export default async function PassengerHome({
   const near = origin ? nearestStops(origin, allStops, { limit: 3 }) : [];
   const dates = [now.date, addDays(now.date, 1), addDays(now.date, 2)];
 
-  const arrivals = near.length
+  // The standing booking's stop is watched wherever the passenger is right now:
+  // in the evening they board at work, far from the stops near home.
+  const standing = (await listSubscriptions(user.id)).find((s) => s.direction === direction);
+  const nearIds = new Set(near.map((n) => n.stop.id));
+  const watchedStopIds = [...new Set([...nearIds, ...(standing ? [standing.stopId] : [])])];
+
+  const arrivals = watchedStopIds.length
     ? await getUpcomingArrivals({
-        stopIds: near.map((n) => n.stop.id),
+        stopIds: watchedStopIds,
         dates,
         now: now.instant,
         passengerId: user.id,
@@ -63,7 +70,10 @@ export default async function PassengerHome({
 
   // A booked trip takes over the main card; otherwise the next vehicle does.
   const mine = arrivals.find((a) => a.bookedByMe && !a.eta.passed);
-  const first = mine ?? arrivals[0];
+  const first = mine ?? arrivals.find((a) => nearIds.has(a.stopId));
+  const mineIsStanding =
+    mine != null && standing != null && mine.routeId === standing.routeId && mine.startTime === standing.departureTime;
+  const pause = standing ? pauseLabel({ from: profile?.pauseFrom ?? null, to: profile?.pauseTo ?? null }, now.date) : null;
   const heroStopId = first?.stopId ?? near[0]?.stop.id;
   const heroStop = near.find((n) => n.stop.id === heroStopId);
   const others = first
@@ -140,7 +150,21 @@ export default async function PassengerHome({
 
         <LocationSync hasCoords={hasCoords} />
 
-        {!origin ? (
+        {pause ? (
+          <Link
+            href="/app/profile"
+            className="flex min-h-11 items-center justify-between gap-3 rounded-2xl bg-late-soft px-4 py-2.5 text-sm text-late"
+          >
+            <span>
+              <strong className="font-semibold">{pause}.</strong> Отметки «Поеду» в эти дни не ставятся.
+            </span>
+            <span className="shrink-0 font-semibold">Изменить</span>
+          </Link>
+        ) : null}
+
+        {mine ? (
+          <TripCard arrival={mine} standing={mineIsStanding} />
+        ) : !origin ? (
           <section className="flex flex-col gap-4 rounded-3xl bg-card px-5 pt-6 pb-5">
             <span className="flex size-14 items-center justify-center rounded-2xl bg-primary-soft text-primary">
               <IconPin className="size-7" />
@@ -181,8 +205,6 @@ export default async function PassengerHome({
               {direction === "to_work" ? "На работу" : "Домой"} через эту остановку в ближайшие дни рейсов нет.
             </p>
           </section>
-        ) : mine ? (
-          <TripCard arrival={mine} />
         ) : (
           <EtaHero arrival={first} stopName={first.stopName} distanceM={distanceTo(first.stopId)} />
         )}

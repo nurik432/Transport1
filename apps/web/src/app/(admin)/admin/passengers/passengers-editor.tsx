@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ActionButton, Collapsible, EntityForm, type FormField } from "@/components/entity-form";
 import { savePassenger, setUserStatus } from "../actions";
+import { RidesPanel, type PassengerRide } from "./rides-panel";
 
 function fields(defaults?: Record<string, string | number | null>): FormField[] {
   return [
@@ -39,6 +40,7 @@ export function PassengerRowActions({
   lat,
   lng,
   status,
+  rides,
 }: {
   id: string;
   name: string;
@@ -48,8 +50,27 @@ export function PassengerRowActions({
   lat: number | null;
   lng: number | null;
   status: "active" | "blocked";
+  /** standing bookings: at most one per direction */
+  rides: PassengerRide[];
 }) {
-  const [editing, setEditing] = useState(false);
+  const [mode, setMode] = useState<"view" | "edit" | "rides">("view");
+  const editing = mode === "edit";
+  const setEditing = (on: boolean) => setMode(on ? "edit" : "view");
+
+  if (mode === "rides") {
+    return (
+      <div className="min-w-[32rem] py-2">
+        <RidesPanel passengerId={id} rides={rides} />
+        <button
+          type="button"
+          onClick={() => setMode("view")}
+          className="mt-2 cursor-pointer text-sm text-muted-foreground hover:underline"
+        >
+          Закрыть
+        </button>
+      </div>
+    );
+  }
 
   if (!editing) {
     return (
@@ -61,12 +82,27 @@ export function PassengerRowActions({
         >
           Изменить
         </button>
+        {status === "active" ? (
+          <button
+            type="button"
+            onClick={() => setMode("rides")}
+            className="min-h-9 cursor-pointer rounded-lg px-3 text-sm font-medium text-primary transition-colors hover:bg-muted"
+          >
+            Рейсы
+          </button>
+        ) : null}
         <ActionButton
           action={() => setUserStatus(id, status === "blocked" ? "active" : "blocked")}
           label={status === "blocked" ? "Разблокировать" : "Заблокировать"}
           variant="ghost"
           className={status === "blocked" ? "" : "text-danger"}
-          confirm={status === "blocked" ? undefined : `Заблокировать доступ для ${name}?`}
+          confirm={
+            status === "blocked"
+              ? undefined
+              : rides.length
+                ? `Заблокировать доступ для ${name}? Привязки к рейсам и будущие записи будут сняты.`
+                : `Заблокировать доступ для ${name}?`
+          }
         />
       </span>
     );

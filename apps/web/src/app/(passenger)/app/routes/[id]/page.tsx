@@ -13,11 +13,14 @@ import {
 import { requireRole } from "@/lib/auth";
 import { db, schema } from "@/lib/db";
 import { getFavorites, getRouteTrips, listRoutes } from "@/lib/queries";
+import { listSubscriptions } from "@/lib/subscriptions";
 import { MobileHeader } from "@/components/mobile-shell";
 import { MapPanel } from "@/components/map";
 import { LinkButton, RouteBadge, cx } from "@/components/ui";
 import { FavoriteButton } from "@/components/favorite-button";
+import { IconCheck } from "@/components/icons";
 import { BookButton } from "../../book-button";
+import { SubscribeButton, UnsubscribeButton } from "../../subscribe-button";
 
 interface Departure {
   time: string;
@@ -32,11 +35,11 @@ export default async function RoutePage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ dep?: string }>;
+  searchParams: Promise<{ dep?: string; stop?: string }>;
 }) {
   const user = await requireRole("passenger");
   const { id } = await params;
-  const { dep } = await searchParams;
+  const { dep, stop: pickedStopId } = await searchParams;
   const now = localNow();
 
   const allRoutes = await listRoutes(false);
@@ -45,12 +48,16 @@ export default async function RoutePage({
   // Morning and evening are two routes sharing a name.
   const pair = allRoutes.find((r) => r.name === route.name && r.direction !== route.direction && r.status === "active");
 
-  const [trips, favorites, profileRows] = await Promise.all([
+  const [trips, favorites, profileRows, subscriptions] = await Promise.all([
     getRouteTrips(route.id, now.date),
     getFavorites(user.id),
     db.select().from(schema.passengers).where(eq(schema.passengers.userId, user.id)).limit(1),
+    listSubscriptions(user.id),
   ]);
   const profile = profileRows[0];
+  // One standing booking per direction: this route's, or another route's that a new one would replace.
+  const directionSub = subscriptions.find((s) => s.direction === route.direction);
+  const mySub = directionSub?.routeId === route.id ? directionSub : undefined;
 
   const myBookings = trips.length
     ? await db
@@ -104,10 +111,22 @@ export default async function RoutePage({
       )[0]
     : undefined;
   const bookedStopId = selected?.tripId ? bookedStopByTrip.get(selected.tripId) : undefined;
-  const boardingStopId = bookedStopId ?? nearest?.stop.stopId;
+  // The last stop is where everyone gets off, so it cannot be picked for boarding.
+  const boardable = route.stops.slice(0, -1);
+  const pickedStop = boardable.find((s) => s.stopId === pickedStopId);
+  const boardingStopId = pickedStop?.stopId ?? bookedStopId ?? mySub?.stopId ?? nearest?.stop.stopId;
   const boardingStop = route.stops.find((s) => s.stopId === boardingStopId);
 
   const canBook = selected != null && selected.tripId != null && !isGone(selected);
+
+  const selectedSchedule = selected ? route.schedules.find((s) => s.active && s.departureTime === selected.time) : undefined;
+  const canSubscribe = route.status === "active" && selectedSchedule != null;
+  const subscribedHere = mySub != null && mySub.scheduleId === selectedSchedule?.id;
+  const stopHref = (stopId: string) => {
+    const q = new URLSearchParams({ stop: stopId });
+    if (selected) q.set("dep", selected.time);
+    return `/app/routes/${route.id}?${q.toString()}`;
+  };
 
   return (
     <>
@@ -156,15 +175,17 @@ export default async function RoutePage({
                     ? "отменён"
                     : d.status === "in_progress"
                       ? "в пути"
-                      : gone
-                        ? "ушёл"
-                        : d.free != null
-                          ? seatsLabel(d.free)
-                          : "";
+                      : d.time === mySub?.departureTime
+                        ? "ваш рейс"
+                        : gone
+                          ? "ушёл"
+                          : d.free != null
+                            ? seatsLabel(d.free)
+                            : "";
                 return (
                   <li key={d.time}>
                     <Link
-                      href={`/app/routes/${route.id}?dep=${d.time}`}
+                      href={`/app/routes/${route.id}?dep=${d.time}${pickedStop ? `&stop=${pickedStop.stopId}` : ""}`}
                       scroll={false}
                       aria-current={active ? "true" : undefined}
                       className={cx(
@@ -199,19 +220,20 @@ export default async function RoutePage({
 
         {selected ? (
           <section className="flex flex-col gap-2">
-            <h2 className="mx-1 text-[15px] font-bold">Остановки рейса {selected.time}</h2>
+            <div className="mx-1 flex flex-col gap-0.5">
+              <h2 className="text-[15px] font-bold">Остановки рейса {selected.time}</h2>
+              <p className="text-xs text-muted-foreground">Нажмите на остановку, чтобы выбрать посадку</p>
+            </div>
             <ol className="flex flex-col rounded-2xl bg-card px-3.5 py-1.5">
               {route.stops.map((s, i) => {
                 const mine = s.stopId === boardingStopId;
                 const last = i === route.stops.length - 1;
-                return (
-                  <li
-                    key={s.stopId}
-                    className={cx(
-                      "grid grid-cols-[20px_1fr_auto] items-center gap-x-3",
-                      mine ? "-mx-2 min-h-12 rounded-xl bg-highlight-soft px-2" : "min-h-11",
-                    )}
-                  >
+                const rowClass = cx(
+                  "grid grid-cols-[20px_1fr_auto] items-center gap-x-3",
+                  mine ? "-mx-2 min-h-12 rounded-xl bg-highlight-soft px-2" : "min-h-11",
+                );
+                const row = (
+                  <>
                     {mine ? (
                       <span className="size-4 justify-self-center rounded-full bg-highlight" />
                     ) : last ? (
@@ -225,15 +247,33 @@ export default async function RoutePage({
                       </span>
                       {mine ? (
                         <span className="text-xs font-semibold text-late">
-                          {bookedStopId
+                          {s.stopId === bookedStopId || (subscribedHere && s.stopId === mySub?.stopId)
                             ? "Ваша посадка"
-                            : `Ближайшая к дому${nearest ? ` · ${formatDistance(nearest.distanceM)}` : ""}`}
+                            : s.stopId === nearest?.stop.stopId
+                              ? `Ближайшая к дому · ${formatDistance(nearest.distanceM)}`
+                              : "Посадка здесь"}
                         </span>
                       ) : null}
                     </span>
                     <span className={cx("text-sm", mine ? "font-extrabold" : "font-semibold")}>
                       {formatMinutes(selected.minutes + s.offsetMin)}
                     </span>
+                  </>
+                );
+                return (
+                  <li key={s.stopId}>
+                    {last ? (
+                      <div className={rowClass}>{row}</div>
+                    ) : (
+                      <Link
+                        href={stopHref(s.stopId)}
+                        scroll={false}
+                        aria-current={mine ? "true" : undefined}
+                        className={cx(rowClass, !mine && "-mx-2 rounded-xl px-2 transition-colors hover:bg-muted")}
+                      >
+                        {row}
+                      </Link>
+                    )}
                   </li>
                 );
               })}
@@ -252,6 +292,54 @@ export default async function RoutePage({
               size="lg"
               className="w-full"
             />
+          ) : null}
+          {canSubscribe && selected && selectedSchedule ? (
+            subscribedHere && mySub ? (
+              <section aria-label="Постоянный рейс" className="flex flex-col gap-2 rounded-2xl bg-card p-3.5">
+                <div className="flex items-center gap-3">
+                  <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-ok-soft text-ok">
+                    <IconCheck className="size-4.5" />
+                  </span>
+                  <p className="min-w-0 flex-1 text-sm leading-snug">
+                    <strong>Вы ездите этим рейсом постоянно</strong>
+                    <span className="block text-muted-foreground">
+                      Посадка: «{mySub.stopName}». Отметка «Поеду» ставится сама.
+                    </span>
+                  </p>
+                  <UnsubscribeButton subscriptionId={mySub.id} />
+                </div>
+                {boardingStop && boardingStop.stopId !== mySub.stopId ? (
+                  <SubscribeButton
+                    scheduleId={selectedSchedule.id}
+                    stopId={boardingStop.stopId}
+                    label={`Сменить посадку на «${boardingStop.name}»`}
+                    size="md"
+                  />
+                ) : null}
+              </section>
+            ) : boardingStop ? (
+              <div className="flex flex-col gap-1.5">
+                <SubscribeButton
+                  scheduleId={selectedSchedule.id}
+                  stopId={boardingStop.stopId}
+                  label={
+                    directionSub
+                      ? `Перейти на рейс ${selected.time} постоянно`
+                      : `Ездить рейсом ${selected.time} постоянно`
+                  }
+                />
+                <p className="px-1 text-xs leading-snug text-muted-foreground">
+                  {directionSub
+                    ? `Заменит привязку к рейсу ${directionSub.departureTime} маршрута ${directionSub.routeName}. Посадка: «${boardingStop.name}».`
+                    : `Посадка: «${boardingStop.name}». Отметка «Поеду» будет ставиться сама в каждый день, когда ходит этот рейс.`}
+                </p>
+              </div>
+            ) : (
+              <p className="rounded-2xl bg-card px-4 py-3 text-sm text-muted-foreground">
+                Выберите остановку посадки в списке выше — и сможете привязаться к рейсу {selected.time}, чтобы не
+                нажимать «Поеду» каждый день.
+              </p>
+            )
           ) : null}
           {selected?.tripId ? (
             <LinkButton href={`/app/trips/${selected.tripId}`} variant={canBook && boardingStop ? "ghost" : "secondary"} className="w-full">

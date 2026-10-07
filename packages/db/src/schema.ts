@@ -86,6 +86,9 @@ export const passengers = pgTable("passengers", {
   lat: doublePrecision("lat"),
   lng: doublePrecision("lng"),
   department: text("department"),
+  /** Rides suspended for this inclusive range (holiday, sick leave); both null when there is no pause. */
+  pauseFrom: date("pause_from"),
+  pauseTo: date("pause_to"),
 });
 
 export const vehicles = pgTable(
@@ -280,6 +283,34 @@ export const passengerTrips = pgTable(
   ],
 );
 
+/**
+ * Standing booking: the passenger rides this departure from this stop every day
+ * it runs. Bookings in `passenger_trips` are created from it as trips appear.
+ */
+export const passengerSubscriptions = pgTable(
+  "passenger_subscriptions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    passengerId: uuid("passenger_id")
+      .notNull()
+      .references(() => passengers.userId, { onDelete: "cascade" }),
+    /** route + departure time */
+    scheduleId: uuid("schedule_id")
+      .notNull()
+      .references(() => routeSchedules.id, { onDelete: "cascade" }),
+    stopId: uuid("stop_id")
+      .notNull()
+      .references(() => stops.id, { onDelete: "cascade" }),
+    /** the passenger, or the administrator who attached them */
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("passenger_subscriptions_passenger_schedule_idx").on(t.passengerId, t.scheduleId),
+    index("passenger_subscriptions_schedule_idx").on(t.scheduleId),
+  ],
+);
+
 export const passengerFavorites = pgTable(
   "passenger_favorites",
   {
@@ -396,7 +427,8 @@ export type RouteSchedule = typeof routeSchedules.$inferSelect;
 export type Trip = typeof trips.$inferSelect;
 export type TripStopEvent = typeof tripStopEvents.$inferSelect;
 export type PassengerTrip = typeof passengerTrips.$inferSelect;
-export type PassengerFavorite = typeof passengerFavorites.$inferSelect;
+export type PassengerSubscription = typeof passengerSubscriptions.$inferSelect;
+export type PassengerFavorite =typeof passengerFavorites.$inferSelect;
 export type Notification = typeof notifications.$inferSelect;
 export type VehiclePosition = typeof vehiclePositions.$inferSelect;
 export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;

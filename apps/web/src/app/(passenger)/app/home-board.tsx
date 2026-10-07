@@ -192,14 +192,24 @@ export function EtaHero({
 }
 
 /** Main card after booking: the passenger's own trip, on dark "ink". */
-export function TripCard({ arrival }: { arrival: Arrival }) {
+export function TripCard({
+  arrival,
+  standing = false,
+}: {
+  arrival: Arrival;
+  /** booked from the passenger's standing booking, not by hand */
+  standing?: boolean;
+}) {
   const running = arrival.status === "in_progress";
   return (
     <section aria-label="Ваша поездка" className="flex flex-col gap-4.5 rounded-3xl bg-ink px-4.5 py-5 text-on-ink">
       <div className="flex items-center gap-3">
         <RouteBadge name={arrival.routeName} color={arrival.routeColor} size="lg" />
         <div className="min-w-0 flex-1">
-          <p className="truncate font-semibold">Рейс {arrival.startTime}</p>
+          <p className="truncate font-semibold">
+            Рейс {arrival.startTime}
+            {standing ? <span className="font-normal text-ink-muted"> · постоянный</span> : null}
+          </p>
           <p className="truncate text-sm text-ink-muted">Посадка: {arrival.stopName}</p>
         </div>
       </div>
@@ -249,6 +259,12 @@ export function TripCard({ arrival }: { arrival: Arrival }) {
           size="lg"
         />
       </div>
+
+      {standing ? (
+        <p className="text-xs leading-snug text-ink-muted">
+          «Не поеду» отменит только эту поездку — привязка к рейсу останется.
+        </p>
+      ) : null}
     </section>
   );
 }

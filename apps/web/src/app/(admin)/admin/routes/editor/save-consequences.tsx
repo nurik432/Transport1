@@ -64,6 +64,18 @@ export function SaveConsequences({
         </p>
       ) : null}
 
+      {impact.droppedSubscriptionCount > 0 ? (
+        <p>
+          {impact.droppedSubscriptionCount}{" "}
+          {plural(impact.droppedSubscriptionCount, [
+            "постоянный пассажир потеряет привязку",
+            "постоянных пассажира потеряют привязку",
+            "постоянных пассажиров потеряют привязку",
+          ])}{" "}
+          — рейс или остановка уходит из маршрута. Уведомление придёт каждому.
+        </p>
+      ) : null}
+
       {impact.movedTripCount > 0 ? (
         <p>
           {impact.movedTripCount}{" "}
