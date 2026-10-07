@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { distanceMeters, formatDistance } from "@transport/domain";
 import { MapPanel, type MapStop } from "@/components/map";
 import { Button, Card, LinkButton } from "@/components/ui";
 import { IconAlert, IconNavigation } from "@/components/icons";
 import { googleMapsRoute, yandexMapsRoute } from "@/lib/nav-links";
-import { bookTrip } from "../../actions";
+import { BookButton } from "../../book-button";
 
 interface Point {
   lat: number;
@@ -85,7 +85,6 @@ export function WalkToStop({
 }) {
   const [state, setState] = useState<State>({ kind: "idle" });
   const [me, setMe] = useState<Point | null>(null);
-  const [booking, startBooking] = useTransition();
   // Re-routing to another stop keeps the current map on screen.
   const [rerouting, setRerouting] = useState(false);
   const [rerouteError, setRerouteError] = useState<string | null>(null);
@@ -263,9 +262,12 @@ export function WalkToStop({
           </p>
         ) : null}
         {canBook && walk.stopId !== bookedStopId ? (
-          <Button disabled={booking} onClick={() => startBooking(() => bookTrip(tripId, walk.stopId))}>
-            {bookedStopId ? `Садиться на «${target.name}»` : `Поеду с «${target.name}»`}
-          </Button>
+          <BookButton
+            tripId={tripId}
+            stopId={walk.stopId}
+            booked={false}
+            bookLabel={bookedStopId ? `Садиться на «${target.name}»` : `Поеду с «${target.name}»`}
+          />
         ) : null}
         <p className="text-xs text-muted-foreground">Голосовые подсказки — во внешнем приложении:</p>
         {externalLinks(target)}

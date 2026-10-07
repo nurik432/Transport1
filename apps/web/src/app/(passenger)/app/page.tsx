@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { addDays, formatDistance, formatLocalDate, localNow, nearestStops, pauseLabel } from "@transport/domain";
 import { requireRole } from "@/lib/auth";
 import { db, schema } from "@/lib/db";
@@ -49,15 +49,11 @@ export default async function PassengerHome({
   const near = origin ? nearestStops(origin, allStops, { limit: 3 }) : [];
   const dates = [now.date, addDays(now.date, 1), addDays(now.date, 2)];
 
-  // The standing booking's stop is watched wherever the passenger is right now:
-  // in the evening they board at work, far from the stops near home.
   const standing = (await listSubscriptions(user.id)).find((s) => s.direction === direction);
-  const nearIds = new Set(near.map((n) => n.stop.id));
-  const watchedStopIds = [...new Set([...nearIds, ...(standing ? [standing.stopId] : [])])];
 
-  const arrivals = watchedStopIds.length
+  const arrivals = near.length
     ? await getUpcomingArrivals({
-        stopIds: watchedStopIds,
+        stopIds: near.map((n) => n.stop.id),
         dates,
         now: now.instant,
         passengerId: user.id,
@@ -68,14 +64,42 @@ export default async function PassengerHome({
 
   const distanceTo = (stopId: string) => near.find((n) => n.stop.id === stopId)?.distanceM ?? null;
 
+  // The passenger's own bookings, wherever the boarding stop is: a trip booked
+  // from a stop that is not among the nearest still takes over the main card.
+  const myBookings = await db
+    .select({ tripId: schema.passengerTrips.tripId, stopId: schema.passengerTrips.stopId })
+    .from(schema.passengerTrips)
+    .innerJoin(schema.trips, eq(schema.trips.id, schema.passengerTrips.tripId))
+    .where(
+      and(
+        eq(schema.passengerTrips.passengerId, user.id),
+        eq(schema.passengerTrips.status, "planned"),
+        inArray(schema.trips.date, dates),
+        inArray(schema.trips.status, ["planned", "in_progress"]),
+      ),
+    );
+  const bookedArrivals = myBookings.length
+    ? (
+        await getUpcomingArrivals({
+          stopIds: [...new Set(myBookings.map((b) => b.stopId))],
+          dates,
+          now: now.instant,
+          passengerId: user.id,
+          direction,
+          limit: 50,
+        })
+      ).filter((a) => myBookings.some((b) => b.tripId === a.tripId && b.stopId === a.stopId))
+    : [];
+
   // A booked trip takes over the main card; otherwise the next vehicle does.
-  const mine = arrivals.find((a) => a.bookedByMe && !a.eta.passed);
-  const first = mine ?? arrivals.find((a) => nearIds.has(a.stopId));
+  const mine = bookedArrivals.find((a) => !a.eta.passed);
+  const first = mine ?? arrivals[0];
   const mineIsStanding =
     mine != null && standing != null && mine.routeId === standing.routeId && mine.startTime === standing.departureTime;
   const pause = standing ? pauseLabel({ from: profile?.pauseFrom ?? null, to: profile?.pauseTo ?? null }, now.date) : null;
   const heroStopId = first?.stopId ?? near[0]?.stop.id;
   const heroStop = near.find((n) => n.stop.id === heroStopId);
+  const mineStop = mine ? allStops.find((st) => st.id === mine.stopId) : undefined;
   const others = first
     ? arrivals
         .filter((a) => a !== first && a.stopId === heroStopId && a.eta.arrivalAt > first.eta.arrivalAt)
@@ -163,7 +187,11 @@ export default async function PassengerHome({
         ) : null}
 
         {mine ? (
-          <TripCard arrival={mine} standing={mineIsStanding} />
+          <TripCard
+            arrival={mine}
+            standing={mineIsStanding}
+            stop={mineStop ? { id: mineStop.id, name: mineStop.name, lat: mineStop.lat, lng: mineStop.lng } : undefined}
+          />
         ) : !origin ? (
           <section className="flex flex-col gap-4 rounded-3xl bg-card px-5 pt-6 pb-5">
             <span className="flex size-14 items-center justify-center rounded-2xl bg-primary-soft text-primary">

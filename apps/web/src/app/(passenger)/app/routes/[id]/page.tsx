@@ -39,7 +39,7 @@ export default async function RoutePage({
 }) {
   const user = await requireRole("passenger");
   const { id } = await params;
-  const { dep, stop: pickedStopId } = await searchParams;
+  const { dep, stop } = await searchParams;
   const now = localNow();
 
   const allRoutes = await listRoutes(false);
@@ -111,22 +111,27 @@ export default async function RoutePage({
       )[0]
     : undefined;
   const bookedStopId = selected?.tripId ? bookedStopByTrip.get(selected.tripId) : undefined;
-  // The last stop is where everyone gets off, so it cannot be picked for boarding.
-  const boardable = route.stops.slice(0, -1);
-  const pickedStop = boardable.find((s) => s.stopId === pickedStopId);
-  const boardingStopId = pickedStop?.stopId ?? bookedStopId ?? mySub?.stopId ?? nearest?.stop.stopId;
+  // A stop tapped in the list wins over the booking and the guess from home.
+  const pickedStopId = route.stops.some((s) => s.stopId === stop) ? stop : undefined;
+  const boardingStopId = pickedStopId ?? bookedStopId ?? mySub?.stopId ?? nearest?.stop.stopId;
   const boardingStop = route.stops.find((s) => s.stopId === boardingStopId);
+  const bookedHere = bookedStopId != null && bookedStopId === boardingStopId;
+  const boardingAt = selected && boardingStop ? formatMinutes(selected.minutes + boardingStop.offsetMin) : "";
 
   const canBook = selected != null && selected.tripId != null && !isGone(selected);
+  const href = (to: { dep?: string; stop?: string }) => {
+    const query = new URLSearchParams();
+    if (to.dep) query.set("dep", to.dep);
+    if (to.stop) query.set("stop", to.stop);
+    const qs = query.toString();
+    return `/app/routes/${route.id}${qs ? `?${qs}` : ""}`;
+  };
 
   const selectedSchedule = selected ? route.schedules.find((s) => s.active && s.departureTime === selected.time) : undefined;
   const canSubscribe = route.status === "active" && selectedSchedule != null;
   const subscribedHere = mySub != null && mySub.scheduleId === selectedSchedule?.id;
-  const stopHref = (stopId: string) => {
-    const q = new URLSearchParams({ stop: stopId });
-    if (selected) q.set("dep", selected.time);
-    return `/app/routes/${route.id}?${q.toString()}`;
-  };
+  // Stops are tappable whenever there is something to attach to: a trip to book or a departure to subscribe to.
+  const canPick = canBook || canSubscribe;
 
   return (
     <>
@@ -185,7 +190,7 @@ export default async function RoutePage({
                 return (
                   <li key={d.time}>
                     <Link
-                      href={`/app/routes/${route.id}?dep=${d.time}${pickedStop ? `&stop=${pickedStop.stopId}` : ""}`}
+                      href={href({ dep: d.time, stop: pickedStopId })}
                       scroll={false}
                       aria-current={active ? "true" : undefined}
                       className={cx(
@@ -220,10 +225,8 @@ export default async function RoutePage({
 
         {selected ? (
           <section className="flex flex-col gap-2">
-            <div className="mx-1 flex flex-col gap-0.5">
-              <h2 className="text-[15px] font-bold">Остановки рейса {selected.time}</h2>
-              <p className="text-xs text-muted-foreground">Нажмите на остановку, чтобы выбрать посадку</p>
-            </div>
+            <h2 className="mx-1 text-[15px] font-bold">Остановки рейса {selected.time}</h2>
+            {canPick ? <p className="mx-1 text-xs text-muted-foreground">Нажмите на остановку, чтобы выбрать посадку</p> : null}
             <ol className="flex flex-col rounded-2xl bg-card px-3.5 py-1.5">
               {route.stops.map((s, i) => {
                 const mine = s.stopId === boardingStopId;
@@ -232,7 +235,7 @@ export default async function RoutePage({
                   "grid grid-cols-[20px_1fr_auto] items-center gap-x-3",
                   mine ? "-mx-2 min-h-12 rounded-xl bg-highlight-soft px-2" : "min-h-11",
                 );
-                const row = (
+                const body = (
                   <>
                     {mine ? (
                       <span className="size-4 justify-self-center rounded-full bg-highlight" />
@@ -247,12 +250,14 @@ export default async function RoutePage({
                       </span>
                       {mine ? (
                         <span className="text-xs font-semibold text-late">
-                          {s.stopId === bookedStopId || (subscribedHere && s.stopId === mySub?.stopId)
+                          {bookedHere || (subscribedHere && s.stopId === mySub?.stopId)
                             ? "Ваша посадка"
-                            : s.stopId === nearest?.stop.stopId
-                              ? `Ближайшая к дому · ${formatDistance(nearest.distanceM)}`
-                              : "Посадка здесь"}
+                            : pickedStopId
+                              ? "Посадка здесь"
+                              : `Ближайшая к дому${nearest ? ` · ${formatDistance(nearest.distanceM)}` : ""}`}
                         </span>
+                      ) : s.stopId === bookedStopId ? (
+                        <span className="text-xs text-muted-foreground">Сейчас ваша посадка</span>
                       ) : null}
                     </span>
                     <span className={cx("text-sm", mine ? "font-extrabold" : "font-semibold")}>
@@ -262,17 +267,18 @@ export default async function RoutePage({
                 );
                 return (
                   <li key={s.stopId}>
-                    {last ? (
-                      <div className={rowClass}>{row}</div>
-                    ) : (
+                    {canPick ? (
                       <Link
-                        href={stopHref(s.stopId)}
+                        href={href({ dep: selected.time, stop: s.stopId })}
+                        replace
                         scroll={false}
                         aria-current={mine ? "true" : undefined}
                         className={cx(rowClass, !mine && "-mx-2 rounded-xl px-2 transition-colors hover:bg-muted")}
                       >
-                        {row}
+                        {body}
                       </Link>
+                    ) : (
+                      <div className={rowClass}>{body}</div>
                     )}
                   </li>
                 );
@@ -284,10 +290,15 @@ export default async function RoutePage({
         <div className="flex flex-col gap-2">
           {canBook && selected?.tripId && boardingStop ? (
             <BookButton
+              key={boardingStop.stopId}
               tripId={selected.tripId}
               stopId={boardingStop.stopId}
-              booked={Boolean(bookedStopId)}
-              bookLabel={`Поеду в ${formatMinutes(selected.minutes + boardingStop.offsetMin)} с «${boardingStop.name}»`}
+              booked={bookedHere}
+              bookLabel={
+                bookedStopId
+                  ? `Садиться на «${boardingStop.name}» в ${boardingAt}`
+                  : `Поеду в ${boardingAt} с «${boardingStop.name}»`
+              }
               cancelLabel={`Не поеду в ${selected.time}`}
               size="lg"
               className="w-full"

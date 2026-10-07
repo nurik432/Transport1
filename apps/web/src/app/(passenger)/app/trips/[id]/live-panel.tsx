@@ -1,10 +1,11 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { MapPanel } from "@/components/map";
 import { useTripLive } from "@/components/live-trip";
 import { cx } from "@/components/ui";
 import { IconBus } from "@/components/icons";
+import { ShareLocation } from "./share-location";
 
 export interface LiveStop {
   stopId: string;
@@ -17,7 +18,18 @@ export interface LiveStop {
   waiting: number;
 }
 
-type TripStatus = "planned" | "in_progress" | "completed" | "cancelled";
+export type TripStatus = "planned" | "in_progress" | "completed" | "cancelled";
+
+interface StopRow {
+  s: LiveStop;
+  eta?: { minutesFromNow: number; distanceM: number; passed: boolean };
+  passed: boolean;
+  delayMin: number;
+  shownTime: string;
+  /** picked for boarding (the booked stop unless another one is picked) */
+  isMine: boolean;
+  isBooked: boolean;
+}
 
 const STATUS_LABEL: Record<TripStatus, string> = {
   planned: "По расписанию",
@@ -56,6 +68,7 @@ function formatDistance(m: number): string {
  * with "the vehicle is here" and the passenger's own stop called out.
  * While the vehicle reports its position, times come from GPS; otherwise the
  * driver's marks, then the schedule.
+ * With `onPickStop`, a stop still ahead can be picked for boarding in the list or on the map.
  */
 export function TripLivePanel({
   tripId,
@@ -65,6 +78,8 @@ export function TripLivePanel({
   routeColor,
   routeLine,
   myStopId,
+  pickedStopId,
+  onPickStop,
   children,
 }: {
   tripId: string;
@@ -74,15 +89,21 @@ export function TripLivePanel({
   routeColor: string;
   /** road geometry of the route; straight lines between stops when absent */
   routeLine?: [number, number][] | null;
+  /** the booked stop */
   myStopId?: string;
+  /** the stop picked for boarding; the booked one when not given */
+  pickedStopId?: string;
+  onPickStop?: (stopId: string) => void;
   /** booking card, shown under the stop list */
   children?: ReactNode;
 }) {
   const active = status === "in_progress";
   const live = useTripLive(tripId, active);
+  const [me, setMe] = useState<{ lat: number; lng: number } | null>(null);
   const fresh = live.tracking === "live" || live.tracking === "stale";
+  const chosenStopId = pickedStopId ?? myStopId;
 
-  const rows = stops.map((s) => {
+  const rows = stops.map((s): StopRow => {
     const eta = fresh ? live.etaByStop[s.stopId] : undefined;
     const passed = Boolean(s.arrivedAt) || Boolean(eta?.passed);
     const delayMin = s.arrivedAt
@@ -92,8 +113,21 @@ export function TripLivePanel({
         : 0;
     // Prefer the arrival the driver marked, then GPS, then the schedule.
     const shownTime = s.arrivedAt ? hhmm(s.arrivedAt) : eta && !eta.passed ? hhmm(eta.arrivalAt) : hhmm(s.plannedAt);
-    return { s, eta, passed, delayMin, shownTime, isMine: s.stopId === myStopId };
+    return {
+      s,
+      eta,
+      passed,
+      delayMin,
+      shownTime,
+      isMine: s.stopId === chosenStopId,
+      isBooked: s.stopId === myStopId,
+    };
   });
+  const pick = onPickStop
+    ? (stopId: string) => {
+        if (!rows.find((r) => r.s.stopId === stopId)?.passed) onPickStop(stopId);
+      }
+    : undefined;
 
   // The vehicle sits between the last passed stop and the next one.
   const nextIndex = rows.findIndex((r) => !r.passed);
@@ -118,8 +152,9 @@ export function TripLivePanel({
           lat: s.lat,
           lng: s.lng,
           note: s.arrivedAt ? hhmm(s.arrivedAt) : hhmm(s.plannedAt),
-          highlight: s.stopId === myStopId,
+          highlight: s.stopId === chosenStopId,
         }))}
+        onStopClick={pick}
         vehicles={
           live.position
             ? [
@@ -135,7 +170,10 @@ export function TripLivePanel({
               ]
             : []
         }
+        me={me}
       />
+
+      {active && myStopId ? <ShareLocation tripId={tripId} onPosition={setMe} /> : null}
 
       <div className="flex items-center gap-2.5 rounded-xl bg-card px-3.5 py-2.5 text-sm">
         <span
@@ -161,6 +199,8 @@ export function TripLivePanel({
         ) : null}
       </div>
 
+      {pick ? <p className="px-1 text-xs text-muted-foreground">Нажмите на остановку, чтобы выбрать посадку</p> : null}
+
       <ol aria-label="Остановки рейса" className="flex flex-col rounded-2xl bg-card px-3.5 py-1.5">
         {rows.map((r, i) => (
           <StopRowWithVehicle
@@ -169,6 +209,7 @@ export function TripLivePanel({
             row={r}
             last={i === rows.length - 1}
             routeColor={routeColor}
+            onPick={pick && !r.passed ? pick : undefined}
           />
         ))}
       </ol>
@@ -183,20 +224,20 @@ function StopRowWithVehicle({
   row,
   last,
   routeColor,
+  onPick,
 }: {
   showVehicle: boolean;
-  row: {
-    s: LiveStop;
-    eta?: { minutesFromNow: number; distanceM: number; passed: boolean };
-    passed: boolean;
-    delayMin: number;
-    shownTime: string;
-    isMine: boolean;
-  };
+  row: StopRow;
   last: boolean;
   routeColor: string;
+  /** makes the row a button that picks this stop for boarding */
+  onPick?: (stopId: string) => void;
 }) {
-  const { s, eta, passed, delayMin, shownTime, isMine } = row;
+  const { s, isMine } = row;
+  const rowClass = cx(
+    "grid grid-cols-[24px_1fr_auto] items-center gap-x-3",
+    isMine ? "-mx-2 my-1 min-h-16 rounded-xl bg-highlight-soft px-2" : "min-h-11",
+  );
   return (
     <>
       {showVehicle ? (
@@ -207,65 +248,97 @@ function StopRowWithVehicle({
           <span className="text-sm font-semibold text-ink">Транспорт сейчас здесь</span>
         </li>
       ) : null}
-      <li
-        className={cx(
-          "grid grid-cols-[24px_1fr_auto] items-center gap-x-3",
-          isMine ? "-mx-2 my-1 min-h-16 rounded-xl bg-highlight-soft px-2" : "min-h-11",
-        )}
-      >
-        {isMine ? (
-          <span className="size-4.5 justify-self-center rounded-full border-3 border-card bg-highlight ring-1 ring-highlight" />
-        ) : last ? (
-          <span
-            className={cx("size-3.5 justify-self-center rounded", passed && "opacity-40")}
-            style={{ backgroundColor: routeColor }}
-          />
-        ) : (
-          <span
-            className={cx("size-3 justify-self-center rounded-full border-3", passed && "opacity-40")}
-            style={passed ? { borderColor: routeColor, backgroundColor: routeColor } : { borderColor: routeColor }}
-          />
-        )}
-
-        <span className="flex min-w-0 flex-col">
-          <span
+      <li>
+        {onPick ? (
+          <button
+            type="button"
+            aria-pressed={isMine}
+            onClick={() => onPick(s.stopId)}
             className={cx(
-              "truncate",
-              isMine ? "text-[15px] font-bold" : passed ? "text-sm text-muted-foreground" : "text-sm",
-              last && !isMine && "font-semibold",
+              rowClass,
+              "w-[calc(100%+1rem)] cursor-pointer text-left",
+              !isMine && "-mx-2 rounded-xl px-2 transition-colors hover:bg-muted",
             )}
           >
-            {s.name}
-          </span>
-          {isMine ? (
-            <span className="text-xs font-semibold text-late">
-              Ваша остановка{delayMin >= 2 ? ` · план ${hhmm(s.plannedAt)}` : ""}
-              {eta && !eta.passed && eta.distanceM > 0 ? ` · ${formatDistance(eta.distanceM)}` : ""}
-            </span>
-          ) : s.waiting > 0 && !passed ? (
-            <span className="text-xs text-muted-foreground">Ожидают: {s.waiting}</span>
-          ) : null}
-        </span>
-
-        <span className="flex flex-col items-end">
-          {passed ? (
-            <span className="text-[13px] text-muted-foreground">
-              {s.arrivedAt && delayMin > 0 ? (
-                <>
-                  <s>{hhmm(s.plannedAt)}</s> {shownTime}
-                </>
-              ) : (
-                shownTime
-              )}
-            </span>
-          ) : (
-            <span className={cx("font-semibold", isMine ? "text-[17px] font-extrabold" : "text-sm")}>{shownTime}</span>
-          )}
-          {!passed && eta && !eta.passed && isMine ? (
-            <span className="text-xs text-highlight-foreground">{inMinutes(eta.minutesFromNow)}</span>
-          ) : null}
-        </span>
+            <StopRowBody row={row} last={last} routeColor={routeColor} />
+          </button>
+        ) : (
+          <div className={rowClass}>
+            <StopRowBody row={row} last={last} routeColor={routeColor} />
+          </div>
+        )}
       </li>
+    </>
+  );
+}
+
+function StopRowBody({
+  row,
+  last,
+  routeColor,
+}: {
+  row: StopRow;
+  last: boolean;
+  routeColor: string;
+}) {
+  const { s, eta, passed, delayMin, shownTime, isMine, isBooked } = row;
+  return (
+    <>
+      {isMine ? (
+        <span className="size-4.5 justify-self-center rounded-full border-3 border-card bg-highlight ring-1 ring-highlight" />
+      ) : last ? (
+        <span
+          className={cx("size-3.5 justify-self-center rounded", passed && "opacity-40")}
+          style={{ backgroundColor: routeColor }}
+        />
+      ) : (
+        <span
+          className={cx("size-3 justify-self-center rounded-full border-3", passed && "opacity-40")}
+          style={passed ? { borderColor: routeColor, backgroundColor: routeColor } : { borderColor: routeColor }}
+        />
+      )}
+
+      <span className="flex min-w-0 flex-col">
+        <span
+          className={cx(
+            "truncate",
+            isMine ? "text-[15px] font-bold" : passed ? "text-sm text-muted-foreground" : "text-sm",
+            last && !isMine && "font-semibold",
+          )}
+        >
+          {s.name}
+        </span>
+        {isMine ? (
+          <span className="text-xs font-semibold text-late">
+            {isBooked ? "Ваша остановка" : "Посадка здесь"}
+            {delayMin >= 2 ? ` · план ${hhmm(s.plannedAt)}` : ""}
+            {eta && !eta.passed && eta.distanceM > 0 ? ` · ${formatDistance(eta.distanceM)}` : ""}
+          </span>
+        ) : isBooked ? (
+          <span className="text-xs text-muted-foreground">Сейчас ваша посадка</span>
+        ) : s.waiting > 0 && !passed ? (
+          <span className="text-xs text-muted-foreground">Ожидают: {s.waiting}</span>
+        ) : null}
+      </span>
+
+      <span className="flex flex-col items-end">
+        {passed ? (
+          <span className="text-[13px] text-muted-foreground">
+            {s.arrivedAt && delayMin > 0 ? (
+              <>
+                <s>{hhmm(s.plannedAt)}</s> {shownTime}
+              </>
+            ) : (
+              shownTime
+            )}
+          </span>
+        ) : (
+          <span className={cx("font-semibold", isMine ? "text-[17px] font-extrabold" : "text-sm")}>{shownTime}</span>
+        )}
+        {!passed && eta && !eta.passed && isMine ? (
+          <span className="text-xs text-highlight-foreground">{inMinutes(eta.minutesFromNow)}</span>
+        ) : null}
+      </span>
     </>
   );
 }

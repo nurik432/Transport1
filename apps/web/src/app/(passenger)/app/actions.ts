@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema } from "@/lib/db";
 import { changeOwnPassword, requireRole } from "@/lib/auth";
@@ -15,11 +15,47 @@ import {
 } from "@/lib/subscriptions";
 
 /** Book a seat on a trip from a stop (intent, not a hard reservation). */
-export async function bookTrip(tripId: string, stopId: string): Promise<void> {
+export async function bookTrip(tripId: string, stopId: string): Promise<BookingResult> {
   const user = await requireRole("passenger");
 
-  const trip = await db.select({ status: schema.trips.status }).from(schema.trips).where(eq(schema.trips.id, tripId)).limit(1);
-  if (!trip[0] || trip[0].status === "cancelled" || trip[0].status === "completed") return;
+  const trip = await db
+    .select({
+      status: schema.trips.status,
+      routeId: schema.trips.routeId,
+      versionId: sql<string | null>`coalesce(${schema.trips.routeVersionId}, ${schema.routes.currentVersionId})`,
+    })
+    .from(schema.trips)
+    .innerJoin(schema.routes, eq(schema.routes.id, schema.trips.routeId))
+    .where(eq(schema.trips.id, tripId))
+    .limit(1);
+  if (!trip[0]) return { error: "Рейс не найден" };
+  if (trip[0].status === "cancelled") return { error: "Рейс отменён" };
+  if (trip[0].status === "completed") return { error: "Рейс уже завершён" };
+
+  // The passenger picks the stop, so it has to be on this trip's shape and still ahead.
+  const [onRoute, passed] = await Promise.all([
+    trip[0].versionId
+      ? db
+          .select({ stopId: schema.routeStops.stopId })
+          .from(schema.routeStops)
+          .where(and(eq(schema.routeStops.versionId, trip[0].versionId), eq(schema.routeStops.stopId, stopId)))
+          .limit(1)
+      : [],
+    db
+      .select({ id: schema.tripStopEvents.id })
+      .from(schema.tripStopEvents)
+      .where(and(eq(schema.tripStopEvents.tripId, tripId), eq(schema.tripStopEvents.stopId, stopId)))
+      .limit(1),
+  ]);
+  if (!onRoute[0]) return { error: "Этой остановки нет на маршруте рейса" };
+  if (passed[0]) return { error: "Транспорт уже проехал эту остановку" };
+
+  const profile = await db
+    .select({ id: schema.passengers.userId })
+    .from(schema.passengers)
+    .where(eq(schema.passengers.userId, user.id))
+    .limit(1);
+  if (!profile[0]) await db.insert(schema.passengers).values({ userId: user.id }).onConflictDoNothing();
 
   await db
     .insert(schema.passengerTrips)
@@ -31,7 +67,11 @@ export async function bookTrip(tripId: string, stopId: string): Promise<void> {
 
   revalidatePath("/app");
   revalidatePath(`/app/trips/${tripId}`);
+  revalidatePath(`/app/routes/${trip[0].routeId}`);
+  return { ok: true };
 }
+
+export type BookingResult = { ok: true } | { error: string };
 
 /**
  * Cancel the passenger's booking on a trip.
@@ -39,7 +79,7 @@ export async function bookTrip(tripId: string, stopId: string): Promise<void> {
  * On a subscribed departure the booking is kept as `cancelled` — "not today" —
  * because a deleted row would be created again from the subscription.
  */
-export async function cancelBooking(tripId: string): Promise<void> {
+export async function cancelBooking(tripId: string): Promise<BookingResult> {
   const user = await requireRole("passenger");
   const mine = and(eq(schema.passengerTrips.tripId, tripId), eq(schema.passengerTrips.passengerId, user.id));
   if (await tripSubscription(user.id, tripId)) {
@@ -49,6 +89,7 @@ export async function cancelBooking(tripId: string): Promise<void> {
   }
   revalidatePath("/app");
   revalidatePath(`/app/trips/${tripId}`);
+  return { ok: true };
 }
 
 export interface RideActionResult {

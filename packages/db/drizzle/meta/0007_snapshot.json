@@ -1,6 +1,6 @@
 {
-  "id": "d6530f58-1edc-4e22-8007-ae47b8c24bbc",
-  "prevId": "491bdc81-90ce-4445-9d90-f7cdf7a169f9",
+  "id": "290a0b1b-cd41-4521-9c77-0f2ba4298041",
+  "prevId": "d6530f58-1edc-4e22-8007-ae47b8c24bbc",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -351,6 +351,147 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.passenger_subscriptions": {
+      "name": "passenger_subscriptions",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "passenger_id": {
+          "name": "passenger_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "schedule_id": {
+          "name": "schedule_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "stop_id": {
+          "name": "stop_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "passenger_subscriptions_passenger_schedule_idx": {
+          "name": "passenger_subscriptions_passenger_schedule_idx",
+          "columns": [
+            {
+              "expression": "passenger_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "schedule_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "passenger_subscriptions_schedule_idx": {
+          "name": "passenger_subscriptions_schedule_idx",
+          "columns": [
+            {
+              "expression": "schedule_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "passenger_subscriptions_passenger_id_passengers_user_id_fk": {
+          "name": "passenger_subscriptions_passenger_id_passengers_user_id_fk",
+          "tableFrom": "passenger_subscriptions",
+          "tableTo": "passengers",
+          "columnsFrom": [
+            "passenger_id"
+          ],
+          "columnsTo": [
+            "user_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "passenger_subscriptions_schedule_id_route_schedules_id_fk": {
+          "name": "passenger_subscriptions_schedule_id_route_schedules_id_fk",
+          "tableFrom": "passenger_subscriptions",
+          "tableTo": "route_schedules",
+          "columnsFrom": [
+            "schedule_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "passenger_subscriptions_stop_id_stops_id_fk": {
+          "name": "passenger_subscriptions_stop_id_stops_id_fk",
+          "tableFrom": "passenger_subscriptions",
+          "tableTo": "stops",
+          "columnsFrom": [
+            "stop_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "passenger_subscriptions_created_by_users_id_fk": {
+          "name": "passenger_subscriptions_created_by_users_id_fk",
+          "tableFrom": "passenger_subscriptions",
+          "tableTo": "users",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.passenger_trips": {
       "name": "passenger_trips",
       "schema": "",
@@ -512,6 +653,18 @@
         "department": {
           "name": "department",
           "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pause_from": {
+          "name": "pause_from",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "pause_to": {
+          "name": "pause_to",
+          "type": "date",
           "primaryKey": false,
           "notNull": false
         }

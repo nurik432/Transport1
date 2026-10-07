@@ -18,6 +18,7 @@ import { IconAlert, IconArrowLeft, IconUsers } from "@/components/icons";
 import { googleMapsRoute, yandexMapsRoute } from "@/lib/nav-links";
 import { departStop, finishTrip, markArrival, setHeadcount } from "../../actions";
 import { PositionTracker, type TrackerStatus } from "./position-tracker";
+import { usePassengersLive } from "./use-passengers-live";
 
 export interface DriveStop {
   stopId: string;
@@ -96,6 +97,7 @@ export function DrivingScreen({
   serverNow: string;
 }) {
   const [fix, setFix] = useState<Fix | null>(null);
+  const sharing = usePassengersLive(tripId);
   // The minutes to the next stop have to count down on their own; reading the
   // clock during render would be impure, so it ticks here.
   const [nowMs, setNowMs] = useState(() => new Date(serverNow).getTime());
@@ -372,13 +374,25 @@ export function DrivingScreen({
           <div className="h-[170px] overflow-hidden rounded-[18px] bg-drive-panel">
             <MapPanel
               className="h-[170px] w-full"
-              expandable={false}
               stops={mapStops}
               lines={lines}
               vehicles={fix ? [{ id: "me", lat: fix.lat, lng: fix.lng, label: "Вы", color: routeColor, alert: offRoute }] : []}
+              people={sharing.map((p) => ({
+                id: p.passengerId,
+                lat: p.lat,
+                lng: p.lng,
+                label: p.name,
+                note: `Садится: ${p.stopName}`,
+                stale: nowMs - new Date(p.recordedAt).getTime() > 60_000,
+              }))}
               follow={fix ? { lat: fix.lat, lng: fix.lng } : null}
             />
           </div>
+          {sharing.length ? (
+            <p className="-mt-1 px-1 text-sm text-drive-muted">
+              На карте {sharing.length} {sharing.length === 1 ? "пассажир" : sharing.length < 5 ? "пассажира" : "пассажиров"} — нажмите на точку, чтобы увидеть имя
+            </p>
+          ) : null}
 
           {afterNext ? (
             <div className="flex items-center gap-3 rounded-2xl bg-drive-panel px-4 py-3 text-[15px]">

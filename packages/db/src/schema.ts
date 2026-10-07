@@ -9,6 +9,7 @@ import {
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   time,
   timestamp,
@@ -366,6 +367,28 @@ export const vehiclePositions = pgTable(
     recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull(),
   },
   (t) => [index("vehicle_positions_trip_idx").on(t.tripId, t.recordedAt)],
+);
+
+/**
+ * A passenger's last position on a running trip, shared by their own choice so
+ * the driver can see them. One row per (trip, passenger), overwritten, no history;
+ * rows are removed when the trip ends.
+ */
+export const passengerPositions = pgTable(
+  "passenger_positions",
+  {
+    tripId: uuid("trip_id")
+      .notNull()
+      .references(() => trips.id, { onDelete: "cascade" }),
+    passengerId: uuid("passenger_id")
+      .notNull()
+      .references(() => passengers.userId, { onDelete: "cascade" }),
+    lat: doublePrecision("lat").notNull(),
+    lng: doublePrecision("lng").notNull(),
+    accuracyM: doublePrecision("accuracy_m"),
+    recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.tripId, t.passengerId] })],
 );
 
 /** Web push endpoints, one row per browser/device. */

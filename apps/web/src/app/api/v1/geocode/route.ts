@@ -4,7 +4,8 @@ import { getSessionUser } from "@/lib/auth";
 import { reversePlace, searchPlaces } from "@/lib/geocode";
 
 /**
- * Place search for the administrator: a name or an address in, coordinates out.
+ * Place search for the administrator (stops) and the passenger (home address):
+ * a name or an address in, coordinates out.
  * GET because it is an idempotent read and the query is a place name, not
  * anything personal.
  *
@@ -38,7 +39,7 @@ function overLimit(userId: string): boolean {
 
 export async function GET(request: Request) {
   const user = await getSessionUser();
-  if (!user || user.role !== "admin") {
+  if (!user || (user.role !== "admin" && user.role !== "passenger")) {
     return NextResponse.json({ ok: false, error: "Нет доступа" }, { status: 401 });
   }
   if (overLimit(user.id)) {

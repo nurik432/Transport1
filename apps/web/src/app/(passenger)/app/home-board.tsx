@@ -17,6 +17,7 @@ import type { Arrival } from "@/lib/queries";
 import { RouteBadge, cx } from "@/components/ui";
 import { IconChevronRight, IconPin } from "@/components/icons";
 import { BookButton } from "./book-button";
+import { LiveBusMap } from "./live-bus-map";
 
 const SOURCE_LABEL: Record<EtaSource, string> = {
   position: "по GPS",
@@ -194,9 +195,12 @@ export function EtaHero({
 /** Main card after booking: the passenger's own trip, on dark "ink". */
 export function TripCard({
   arrival,
+  stop,
   standing = false,
 }: {
   arrival: Arrival;
+  /** boarding stop, shown next to the vehicle while the trip is running */
+  stop?: { id: string; name: string; lat: number; lng: number };
   /** booked from the passenger's standing booking, not by hand */
   standing?: boolean;
 }) {
@@ -242,6 +246,10 @@ export function TripCard({
             : "Транспорт в пути и идёт по расписанию."
           : "Рейс ещё не начался. Время уточнится, когда водитель выедет."}
       </p>
+
+      {running && stop ? (
+        <LiveBusMap tripId={arrival.tripId} routeName={arrival.routeName} routeColor={arrival.routeColor} stop={stop} />
+      ) : null}
 
       <div className="flex gap-2.5">
         <Link

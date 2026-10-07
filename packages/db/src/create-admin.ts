@@ -8,8 +8,9 @@ import * as s from "./schema";
  * Creates an administrator from the command line — for the first real launch,
  * the alternative to `seed`, which fills the database with fictional Khujand data.
  *
- * Default mode: an ordinary admin on an EMPTY database only, so it can't create
- * one by accident; use the admin panel for further admins.
+ * Default mode: the first administrator on an EMPTY database only, so it can't
+ * create one by accident. The first administrator is the superadmin: only a
+ * superadmin can add further admins in the panel.
  *
  * ADMIN_SUPER=1: the superadmin, the only account that creates, blocks and resets
  * other admins in the panel. Works on any database (so it also fixes one that was
@@ -38,8 +39,8 @@ async function main() {
       console.log("database already has users; create-admin only runs on an empty database (use ADMIN_SUPER=1 for the superadmin)");
       process.exit(1);
     }
-    await db.insert(s.users).values({ name, phone, role: "admin", passwordHash });
-    console.log(`admin created: ${phone}`);
+    await db.insert(s.users).values({ name, phone, role: "admin", passwordHash, isSuper: true });
+    console.log(`superadmin created: ${phone}`);
     process.exit(0);
   }
 
