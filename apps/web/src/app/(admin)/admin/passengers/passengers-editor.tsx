@@ -6,6 +6,7 @@ import { savePassenger, setUserStatus } from "../actions";
 import { RidesPanel, type PassengerRide } from "./rides-panel";
 
 function fields(defaults?: Record<string, string | number | null>): FormField[] {
+  const home = defaults?.lat != null && defaults?.lng != null ? { lat: Number(defaults.lat), lng: Number(defaults.lng) } : null;
   return [
     { name: "name", label: "Имя и фамилия", required: true, placeholder: "Манижа Рахимова", defaultValue: defaults?.name as string },
     { name: "phone", label: "Телефон", type: "tel", required: true, placeholder: "+992910000001", defaultValue: defaults?.phone as string },
@@ -18,8 +19,14 @@ function fields(defaults?: Record<string, string | number | null>): FormField[] 
     },
     { name: "department", label: "Отдел", placeholder: "Логистика", defaultValue: defaults?.department as string },
     { name: "homeAddress", label: "Домашний адрес", wide: true, defaultValue: defaults?.homeAddress as string },
-    { name: "lat", label: "Широта", type: "number", defaultValue: defaults?.lat as number, hint: "Нужна для поиска ближайшей остановки" },
-    { name: "lng", label: "Долгота", type: "number", defaultValue: defaults?.lng as number },
+    {
+      name: "home",
+      label: "Дом на карте",
+      type: "point",
+      defaultPoint: home,
+      addressTo: "homeAddress",
+      hint: "Нужен для поиска ближайшей остановки. Пустой адрес заполнится по точке",
+    },
   ];
 }
 

@@ -28,8 +28,8 @@ function refresh() {
 const pointSchema = z.object({
   id: z.string().uuid().optional(),
   name: z.string().trim().min(2, "Укажите название точки"),
-  lat: z.coerce.number({ message: "Укажите широту" }).min(-90).max(90),
-  lng: z.coerce.number({ message: "Укажите долготу" }).min(-180).max(180),
+  lat: z.number({ message: "Поставьте точку на карте" }).min(-90).max(90),
+  lng: z.number({ message: "Поставьте точку на карте" }).min(-180).max(180),
   radiusM: z.coerce.number().int().min(20, "Радиус не меньше 20 м").max(5000, "Радиус не больше 5 км").nullable().optional(),
   status: z.enum(["active", "inactive"]).default("active"),
 });
