@@ -17,5 +17,11 @@
         "timeout": 5
       }
     ]
-  }
+  },
+  "cron": [
+    {
+      "command": "node scripts/cron-attendance-reminders.mjs",
+      "schedule": "*/5 * * * *"
+    }
+  ]
 }

@@ -352,3 +352,7 @@ Mechanical record only - see git history for diffs and rationale._
 - 2026-10-20 08:04  Write  C:/Users/fid926309449/transport1/.claude/launch.json
 - 2026-10-20 08:18  Write  C:/Users/fid926309449/.claude/projects/C--Users-fid926309449-transport1/memory/faq-doc-generated.md
 - 2026-10-20 09:09  Write  C:/Users/fid926309449/transport1/apps/web/src/components/point-picker.tsx
+- 2026-10-20 09:19  Edit  C:/Users/fid926309449/transport1/packages/domain/src/attendance.ts
+- 2026-10-20 09:20  Write  C:/Users/fid926309449/transport1/apps/web/src/lib/attendance-reminders.ts
+- 2026-10-20 09:20  Write  C:/Users/fid926309449/transport1/apps/web/src/app/api/v1/cron/attendance-reminders/route.ts
+- 2026-10-20 09:20  Write  C:/Users/fid926309449/transport1/scripts/cron-attendance-reminders.mjs
