@@ -269,3 +269,19 @@ export const IconShield = (p: SVGProps<SVGSVGElement>) => (
     <path d="m9 12 2.2 2.2L15 10.5" />
   </Base>
 );
+
+export const IconQr = (p: SVGProps<SVGSVGElement>) => (
+  <Base {...p}>
+    <rect x="3" y="3" width="7" height="7" rx="1.5" />
+    <rect x="14" y="3" width="7" height="7" rx="1.5" />
+    <rect x="3" y="14" width="7" height="7" rx="1.5" />
+    <path d="M14 14h3v3h-3zM20 14v3M17 20h3M14 20h.01" />
+  </Base>
+);
+
+export const IconClipboard = (p: SVGProps<SVGSVGElement>) => (
+  <Base {...p}>
+    <rect x="5" y="4" width="14" height="17" rx="2" />
+    <path d="M9 4.5V3h6v1.5M9 11h6M9 15h4" />
+  </Base>
+);

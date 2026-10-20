@@ -2,16 +2,18 @@ import { getLockState, requireRole } from "@/lib/auth";
 import { PinSettings } from "@/components/pin-settings";
 import { getThresholds } from "@/lib/queries";
 import { getDeviationSettings } from "@/lib/live";
+import { getAttendanceSettings } from "@/lib/attendance";
 import { AdminMain, PageHeader } from "@/components/admin-ui";
 import { Card, SectionTitle } from "@/components/ui";
 import { ThresholdsForm } from "./thresholds-form";
 import { LiveSettingsForm } from "./live-form";
+import { AttendanceSettingsForm } from "./attendance-form";
 import { ChangePasswordForm } from "./change-password-form";
 
 export default async function SettingsPage() {
   await requireRole("admin");
   const lock = await getLockState();
-  const [t, live] = await Promise.all([getThresholds(), getDeviationSettings()]);
+  const [t, live, attendance] = await Promise.all([getThresholds(), getDeviationSettings(), getAttendanceSettings()]);
 
   return (
     <AdminMain>
@@ -21,6 +23,7 @@ export default async function SettingsPage() {
         <div className="flex flex-col gap-6">
           <ThresholdsForm thresholds={t} />
           <LiveSettingsForm settings={live} />
+          <AttendanceSettingsForm settings={attendance} />
           <Card>
             <SectionTitle>PIN-код</SectionTitle>
             <PinSettings pinSet={lock.pinSet} remember={lock.remember} />

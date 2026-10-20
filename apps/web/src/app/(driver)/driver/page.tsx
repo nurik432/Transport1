@@ -2,6 +2,8 @@ import Link from "next/link";
 import { durationLabel, formatLocalDate, localNow, parseTimeToMinutes, plural } from "@transport/domain";
 import { requireRole } from "@/lib/auth";
 import { getDriverTrips } from "@/lib/queries";
+import { getTodayMarks } from "@/lib/attendance";
+import { IconChevronRight, IconQr } from "@/components/icons";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { LogoutButton } from "@/components/mobile-shell";
 import { EmptyState, Pill, RouteBadge, cx } from "@/components/ui";
@@ -41,7 +43,7 @@ function TripLine({ trip }: { trip: Trip }) {
 export default async function DriverToday() {
   const user = await requireRole("driver");
   const now = localNow();
-  const trips = await getDriverTrips(user.id, now.date);
+  const [trips, marks] = await Promise.all([getDriverTrips(user.id, now.date), getTodayMarks(user.id)]);
   const today = formatLocalDate(now.date, { weekday: "long", day: "numeric", month: "long" });
 
   const running = trips.find((t) => t.status === "in_progress") ?? null;
@@ -63,6 +65,25 @@ export default async function DriverToday() {
       </header>
 
       <main className="mx-auto flex w-full max-w-md flex-col gap-4 px-4 pt-1 pb-4">
+        {/* The timesheet lives next to the trips: the scan happens at the gate,
+            right before or after the trip the driver came here for. */}
+        <Link
+          href="/driver/checkin"
+          aria-label="Отметиться в табеле"
+          className="flex min-h-16 items-center gap-3 rounded-2xl bg-card px-3.5 transition-colors hover:bg-muted"
+        >
+          <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary text-on-primary">
+            <IconQr className="size-6" />
+          </span>
+          <span className="flex min-w-0 flex-1 flex-col">
+            <span className="text-[15px] font-semibold">Отметиться</span>
+            <span className="truncate text-[13px] text-muted-foreground tabular-nums">
+              Утро {marks.morning ?? "—"} · Вечер {marks.evening ?? "—"}
+            </span>
+          </span>
+          <IconChevronRight className="size-4 shrink-0 text-muted-foreground" />
+        </Link>
+
         {trips.length === 0 ? (
           <EmptyState title="На сегодня рейсов нет" hint="Администратор пока не назначил вам рейсы на эту дату." />
         ) : null}

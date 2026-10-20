@@ -38,7 +38,13 @@ export const notificationType = pgEnum("notification_type", [
   "admin_message",
   "route_overloaded",
   "route_underloaded",
+  "attendance_reminder",
 ]);
+export const attendancePointStatus = pgEnum("attendance_point_status", ["active", "inactive"]);
+export const attendanceScanKind = pgEnum("attendance_scan_kind", ["morning", "evening", "off_window"]);
+export const attendanceGeo = pgEnum("attendance_geo", ["verified", "unverified", "out_of_range"]);
+export const attendanceSource = pgEnum("attendance_source", ["qr", "manual"]);
+export const attendanceDayStatus = pgEnum("attendance_day_status", ["worked", "not_worked", "vacation", "sick", "day_off"]);
 
 // ---------- Users & auth ----------
 
@@ -436,6 +442,97 @@ export const settings = pgTable("settings", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// ---------- Driver attendance (timesheet by QR) ----------
+
+/** A place with a printed QR code: the factory gate, a depot. */
+export const attendancePoints = pgTable(
+  "attendance_points",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    lat: doublePrecision("lat").notNull(),
+    lng: doublePrecision("lng").notNull(),
+    /** null = default radius from settings.attendance */
+    radiusM: integer("radius_m"),
+    /** random secret inside the printed QR URL; reissued to void old printouts */
+    token: text("token").notNull(),
+    status: attendancePointStatus("status").notNull().default("active"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("attendance_points_token_idx").on(t.token)],
+);
+
+/**
+ * One scan of a QR by a driver (or an entry added by an administrator).
+ * Facts only: the day's verdict is computed from these in the domain.
+ */
+export const attendanceScans = pgTable(
+  "attendance_scans",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    pointId: uuid("point_id").references(() => attendancePoints.id, { onDelete: "set null" }),
+    /** server time of the scan */
+    scannedAt: timestamp("scanned_at", { withTimezone: true }).notNull(),
+    /** company-time-zone date the scan belongs to */
+    date: date("date").notNull(),
+    kind: attendanceScanKind("kind").notNull(),
+    geo: attendanceGeo("geo").notNull(),
+    lat: doublePrecision("lat"),
+    lng: doublePrecision("lng"),
+    accuracyM: doublePrecision("accuracy_m"),
+    /** a repeat inside a window that already has a scan; kept, never counted */
+    duplicate: boolean("duplicate").notNull().default(false),
+    source: attendanceSource("source").notNull().default("qr"),
+    /** administrator who added a manual entry */
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    reason: text("reason"),
+    tripId: uuid("trip_id").references(() => trips.id, { onDelete: "set null" }),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    deletedBy: uuid("deleted_by").references(() => users.id, { onDelete: "set null" }),
+    deleteReason: text("delete_reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("attendance_scans_user_date_idx").on(t.userId, t.date), index("attendance_scans_date_idx").on(t.date)],
+);
+
+/** An administrator's verdict for a day; overrides whatever the scans say. */
+export const attendanceDayOverrides = pgTable(
+  "attendance_day_overrides",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    date: date("date").notNull(),
+    status: attendanceDayStatus("status").notNull(),
+    reason: text("reason").notNull(),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.date] })],
+);
+
+/** Every manual change to a driver's day: who, what, why. */
+export const attendanceAudit = pgTable(
+  "attendance_audit",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    date: date("date").notNull(),
+    action: text("action").notNull(),
+    before: jsonb("before").$type<Record<string, unknown> | null>(),
+    after: jsonb("after").$type<Record<string, unknown> | null>(),
+    adminId: uuid("admin_id").references(() => users.id, { onDelete: "set null" }),
+    reason: text("reason"),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("attendance_audit_user_date_idx").on(t.userId, t.date)],
+);
+
 // ---------- Inferred types ----------
 
 export type User = typeof users.$inferSelect;
@@ -455,3 +552,6 @@ export type PassengerFavorite =typeof passengerFavorites.$inferSelect;
 export type Notification = typeof notifications.$inferSelect;
 export type VehiclePosition = typeof vehiclePositions.$inferSelect;
 export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;
+export type AttendancePoint = typeof attendancePoints.$inferSelect;
+export type AttendanceScan = typeof attendanceScans.$inferSelect;
+export type AttendanceDayOverride = typeof attendanceDayOverrides.$inferSelect;
