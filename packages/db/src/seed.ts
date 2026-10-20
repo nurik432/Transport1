@@ -1,7 +1,16 @@
 import "dotenv/config";
 import { eq } from "drizzle-orm";
 import bcrypt from "bcryptjs";
-import { addDays, formatMinutes, localDateTime, localNow, parseTimeToMinutes, weekdayOfDate } from "@transport/domain";
+import {
+  DEFAULT_ATTENDANCE_SETTINGS,
+  addDays,
+  formatMinutes,
+  isWorkingDay,
+  localDateTime,
+  localNow,
+  parseTimeToMinutes,
+  weekdayOfDate,
+} from "@transport/domain";
 import { createDb } from "./client";
 import { rebuildAllRouteGeometry } from "./routing";
 import { materializeSubscriptions } from "./subscriptions";
@@ -193,10 +202,13 @@ async function main() {
   ]);
 
   // settings
-  await db.insert(s.settings).values({
-    key: "load_thresholds",
-    value: { overloadPct: 100, overloadShare: 0.3, overloadAvgPct: 95, lowAvgPct: 40, minTrips: 3 },
-  });
+  await db.insert(s.settings).values([
+    {
+      key: "load_thresholds",
+      value: { overloadPct: 100, overloadShare: 0.3, overloadAvgPct: 95, lowAvgPct: 40, minTrips: 3 },
+    },
+    { key: "attendance", value: DEFAULT_ATTENDANCE_SETTINGS as unknown as Record<string, unknown> },
+  ]);
 
   // admin
   await db.insert(s.users).values({ name: "Администратор", phone: "+992900000001", role: "admin", isSuper: true, passwordHash: adminHash });
@@ -493,6 +505,43 @@ async function main() {
       payload: {},
     },
   ]);
+
+  // Driver timesheet: the factory gate QR and two weeks of scans. A fixed token
+  // so the dev QR link can be typed by hand: /driver/checkin?p=factory-gate-dev
+  const [gate] = await db
+    .insert(s.attendancePoints)
+    .values({ name: "Завод, проходная", lat: 40.269, lng: 69.665, token: "factory-gate-dev" })
+    .returning();
+  const scanRows: (typeof s.attendanceScans.$inferInsert)[] = [];
+  for (let back = 14; back >= 1; back--) {
+    const date = addDays(today, -back);
+    if (!isWorkingDay(date, DEFAULT_ATTENDANCE_SETTINGS)) continue;
+    driverUsers.forEach((u, i) => {
+      // the second driver once forgot the evening scan; the third skipped a day
+      if (i === 2 && back === 5) return;
+      const stamp = (minutes: number, kind: "morning" | "evening") => ({
+        userId: u.id,
+        pointId: gate!.id,
+        scannedAt: localDateTime(date, minutes + jitter(20)),
+        date,
+        kind,
+        geo: "verified" as const,
+        lat: 40.269 + (rnd() - 0.5) * 0.001,
+        lng: 69.665 + (rnd() - 0.5) * 0.001,
+        accuracyM: 10 + jitter(30),
+      });
+      scanRows.push(stamp(8 * 60 + 20, "morning"));
+      if (!(i === 1 && back === 3)) scanRows.push(stamp(17 * 60 + 10, "evening"));
+    });
+  }
+  await db.insert(s.attendanceScans).values(scanRows);
+  await db.insert(s.attendanceDayOverrides).values({
+    userId: driverUsers[2]!.id,
+    date: addDays(today, -5),
+    status: "sick",
+    reason: "Справка предоставлена",
+  });
+  console.log(`attendance: 1 point, ${scanRows.length} scans`);
 
   // Road geometry: without it the maps draw straight lines between stops.
   console.log("building road geometry...");

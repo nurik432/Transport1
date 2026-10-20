@@ -5,7 +5,7 @@ import { PinSettings } from "@/components/pin-settings";
 import { db, schema } from "@/lib/db";
 import { getDriverTrips } from "@/lib/queries";
 import Link from "next/link";
-import { IconBus, IconChevronRight, IconHelp, IconLogout, IconSettings } from "@/components/icons";
+import { IconBus, IconChevronRight, IconClipboard, IconHelp, IconLogout, IconSettings } from "@/components/icons";
 import { PushSetup } from "@/components/push-setup";
 import { VAPID_PUBLIC_KEY } from "@/lib/push";
 import { ChangePasswordForm } from "@/components/change-password-form";
@@ -92,6 +92,23 @@ export default async function DriverProfile() {
               </span>
             </div>
           </div>
+        </section>
+
+        <section className="flex flex-col gap-2">
+          <h2 className="mx-1 text-[13px] font-semibold text-muted-foreground">Табель</h2>
+          <Link
+            href="/driver/attendance"
+            className="flex min-h-14 items-center gap-3 rounded-2xl bg-card px-3.5 transition-colors hover:bg-muted"
+          >
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary-soft text-primary">
+              <IconClipboard className="size-5.5" />
+            </span>
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="text-[15px] font-semibold">Мой табель</span>
+              <span className="truncate text-[13px] text-muted-foreground">Отметки за месяц и статус каждого дня</span>
+            </span>
+            <IconChevronRight className="size-4 shrink-0 text-muted-foreground" />
+          </Link>
         </section>
 
         <section className="flex flex-col gap-2">

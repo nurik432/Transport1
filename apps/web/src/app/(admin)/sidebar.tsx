@@ -9,6 +9,7 @@ import {
   IconBus,
   IconCalendar,
   IconChart,
+  IconClipboard,
   IconHelp,
   IconHome,
   IconLogout,
@@ -57,6 +58,7 @@ function groups(attention: number, isSuper: boolean): NavGroup[] {
       items: [
         { href: "/admin/analytics", label: "Аналитика", icon: <IconChart /> },
         { href: "/admin/planning", label: "Прогноз", icon: <IconTrend /> },
+        { href: "/admin/attendance/points", label: "Табель", icon: <IconClipboard /> },
       ],
     },
     {

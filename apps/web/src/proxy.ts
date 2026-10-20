@@ -14,7 +14,8 @@ export function proxy(request: NextRequest) {
   if (!hasSession && pathname !== "/login") {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
-    url.search = pathname === "/" ? "" : `?next=${encodeURIComponent(pathname)}`;
+    // Keep the query too: a QR link carries its point token there.
+    url.search = pathname === "/" ? "" : `?next=${encodeURIComponent(pathname + request.nextUrl.search)}`;
     return NextResponse.redirect(url);
   }
 
