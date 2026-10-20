@@ -344,3 +344,9 @@ Mechanical record only - see git history for diffs and rationale._
 - 2026-10-19 17:23  Write  C:/Users/fid926309449/transport1/apps/web/src/app/(admin)/admin/settings/attendance-form.tsx
 - 2026-10-19 17:28  Write  C:/Users/fid926309449/transport1/.claude/launch.json
 - 2026-10-19 17:35  Write  C:/Users/fid926309449/.claude/projects/C--Users-fid926309449-transport1/memory/dev-db-port-conflict.md
+- 2026-10-20 07:59  Write  C:/Users/fid926309449/transport1/apps/web/src/lib/attendance-admin.ts
+- 2026-10-20 07:59  Write  C:/Users/fid926309449/transport1/apps/web/src/app/(admin)/admin/attendance/day-actions.ts
+- 2026-10-20 07:59  Write  C:/Users/fid926309449/transport1/apps/web/src/app/api/v1/admin/attendance/export/route.ts
+- 2026-10-20 08:00  Write  C:/Users/fid926309449/transport1/apps/web/src/app/(admin)/admin/attendance/page.tsx
+- 2026-10-20 08:01  Write  C:/Users/fid926309449/transport1/apps/web/src/app/(admin)/admin/attendance/month-grid.tsx
+- 2026-10-20 08:04  Write  C:/Users/fid926309449/transport1/.claude/launch.json
