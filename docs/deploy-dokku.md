@@ -41,6 +41,21 @@ dokku config:set --no-restart transport \
 в поле поиска, — никаких данных сотрудников. Публичный сервер ограничен одним запросом
 в секунду на всех, поэтому для регулярной работы поднимите свой инстанс.
 
+### Напоминания табеля (cron)
+
+`app.json` задаёт Dokku задачу `node scripts/cron-attendance-reminders.mjs` каждые 5 минут.
+Она вызывает `POST /api/v1/cron/attendance-reminders`, и водители без отметки получают
+push за 30 минут до конца утреннего и вечернего окна. Повторный вызов ничего не дублирует.
+Нужны две переменные:
+
+```bash
+dokku config:set --no-restart transport   CRON_SECRET="$(openssl rand -hex 24)"   APP_URL=https://transport.example.com
+```
+
+Если из контейнера задачи публичный адрес недоступен, задайте `CRON_TARGET_URL` (внутренний адрес
+веб-процесса). Проверить вручную: `dokku cron:list transport`, затем `dokku cron:run transport <id>`.
+Без `CRON_SECRET` эндпоинт отвечает 503 и напоминания не уходят.
+
 VAPID-ключи генерируются командой `npx web-push generate-vapid-keys`. Публичный ключ
 читается в рантайме, пересобирать образ после его смены не нужно.
 

@@ -7,6 +7,7 @@ import {
   dayCode,
   isWorkingDay,
   monthDates,
+  reminderDue,
   summarizeMonth,
   validateAttendanceWindows,
   windowsLabel,
@@ -148,5 +149,32 @@ describe("month helpers", () => {
       S,
     );
     expect(t).toEqual({ full: 1, partial: 0, missing: 1, vacation: 0, sick: 1, dayOff: 0, notWorked: 0 });
+  });
+});
+
+describe("reminderDue", () => {
+  const MON = "2026-10-19";
+  const SAT = "2026-10-24";
+
+  it("is due in the last 30 minutes of a window, edges included", () => {
+    expect(reminderDue(MON, min(10, 30), S)).toBe("morning");
+    expect(reminderDue(MON, min(11), S)).toBe("morning");
+    expect(reminderDue(MON, min(20, 30), S)).toBe("evening");
+    expect(reminderDue(MON, min(21), S)).toBe("evening");
+  });
+  it("is not due earlier in the window or after it closes", () => {
+    expect(reminderDue(MON, min(10, 29), S)).toBeNull();
+    expect(reminderDue(MON, min(11, 1), S)).toBeNull();
+    expect(reminderDue(MON, min(13), S)).toBeNull();
+    expect(reminderDue(MON, min(21, 1), S)).toBeNull();
+  });
+  it("is never due on a weekend or a holiday", () => {
+    expect(reminderDue(SAT, min(10, 45), S)).toBeNull();
+    expect(reminderDue(MON, min(10, 45), { ...S, holidays: [MON] })).toBeNull();
+  });
+  it("covers the whole window when it is shorter than the lead time", () => {
+    const short = { ...S, morning: { from: "08:00", to: "08:20" } };
+    expect(reminderDue(MON, min(8), short)).toBe("morning");
+    expect(reminderDue(MON, min(7, 59), short)).toBeNull();
   });
 });

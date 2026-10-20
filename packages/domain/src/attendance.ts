@@ -104,6 +104,30 @@ export function isWorkingDay(date: string, settings: Pick<AttendanceSettings, "h
   return weekdayOfDate(date) <= 5 && !settings.holidays.includes(date);
 }
 
+/** How long before a window closes a driver without a scan is reminded. */
+export const REMINDER_LEAD_MIN = 30;
+
+/**
+ * The window whose reminder is due at this local time, or null. Due during the
+ * last `leadMin` minutes of a window on a working day; a window shorter than
+ * that is covered whole.
+ */
+export function reminderDue(
+  date: string,
+  minutes: number,
+  settings: AttendanceSettings,
+  leadMin: number = REMINDER_LEAD_MIN,
+): "morning" | "evening" | null {
+  if (!isWorkingDay(date, settings)) return null;
+  for (const kind of ["morning", "evening"] as const) {
+    const w = settings[kind];
+    const end = parseTimeToMinutes(w.to);
+    const start = Math.max(parseTimeToMinutes(w.from), end - leadMin);
+    if (minutes >= start && minutes <= end) return kind;
+  }
+  return null;
+}
+
 export interface ScanLike {
   kind: ScanKind;
   duplicate: boolean;

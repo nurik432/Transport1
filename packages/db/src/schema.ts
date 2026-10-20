@@ -514,6 +514,23 @@ export const attendanceDayOverrides = pgTable(
   (t) => [primaryKey({ columns: [t.userId, t.date] })],
 );
 
+/**
+ * A reminder already sent for one window of one day. The primary key makes the
+ * cron endpoint idempotent: a second call finds the row and sends nothing.
+ */
+export const attendanceReminders = pgTable(
+  "attendance_reminders",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    date: date("date").notNull(),
+    kind: attendanceScanKind("kind").notNull(),
+    sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.date, t.kind] })],
+);
+
 /** Every manual change to a driver's day: who, what, why. */
 export const attendanceAudit = pgTable(
   "attendance_audit",

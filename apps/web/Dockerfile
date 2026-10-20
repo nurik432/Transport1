@@ -41,6 +41,7 @@ COPY --from=builder --chown=nextjs:nodejs /repo/apps/web/.next/static ./apps/web
 COPY --from=builder /repo/packages/db/dist/migrate.mjs ./packages/db/dist/migrate.mjs
 COPY --from=builder /repo/packages/db/dist/create-admin.mjs ./packages/db/dist/create-admin.mjs
 COPY --from=builder /repo/packages/db/drizzle ./packages/db/drizzle
+COPY --from=builder /repo/scripts/cron-attendance-reminders.mjs ./scripts/cron-attendance-reminders.mjs
 USER nextjs
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
