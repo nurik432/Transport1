@@ -17,6 +17,7 @@ import {
   weekdayOfDate,
 } from "@transport/domain";
 import { db, schema } from "./db";
+import { tripVehicleNo, tripVehiclesAtTime } from "./trip-vehicle";
 
 const { routes, routeVersions, routeStops, routeSchedules, stops, trips, tripStopEvents, passengerTrips, vehicles, users, drivers, passengers, settings } =
   schema;
@@ -72,7 +73,8 @@ export interface RouteDetail {
   pathSource: "road" | "straight" | null;
   pathDistanceM: number | null;
   stops: RouteStopRow[];
-  schedules: { id: string; departureTime: string; daysOfWeek: number[]; active: boolean }[];
+  /** one row per vehicle departure; vehicles of one time share `departureTime` */
+  schedules: { id: string; departureTime: string; vehicleNo: number; daysOfWeek: number[]; active: boolean }[];
 }
 
 /** All routes with their stops and schedules. `onlyActive` filters out drafts. */
@@ -123,7 +125,7 @@ export async function listRoutes(onlyActive = true): Promise<RouteDetail[]> {
       .select()
       .from(routeSchedules)
       .where(inArray(routeSchedules.routeId, ids))
-      .orderBy(asc(routeSchedules.departureTime)),
+      .orderBy(asc(routeSchedules.departureTime), asc(routeSchedules.vehicleNo)),
   ]);
 
   return routeRows.map((r) => ({
@@ -153,14 +155,20 @@ export async function listRoutes(onlyActive = true): Promise<RouteDetail[]> {
       })),
     schedules: scheduleRows
       .filter((s) => s.routeId === r.id)
-      .map((s) => ({ id: s.id, departureTime: s.departureTime.slice(0, 5), daysOfWeek: s.daysOfWeek, active: s.active })),
+      .map((s) => ({
+        id: s.id,
+        departureTime: s.departureTime.slice(0, 5),
+        vehicleNo: s.vehicleNo,
+        daysOfWeek: s.daysOfWeek,
+        active: s.active,
+      })),
   }));
 }
 
 export interface RouteDayStatus {
   /** today's trips that have not finished, earliest first */
   upcoming: { tripId: string; startTime: string; status: "planned" | "in_progress" }[];
-  /** today's cancelled departures */
+  /** today's departure times whose every vehicle is cancelled */
   cancelled: string[];
   /** the current shape was published within `changedWithinDays` and replaced an older one */
   changedRecently: boolean;
@@ -194,13 +202,19 @@ export async function getRoutesDayStatus(
       .where(inArray(routes.id, routeIds)),
   ]);
 
+  // A time counts as cancelled only when none of its vehicles still runs.
+  const running = new Set<string>();
+  for (const t of tripRows) {
+    if (t.status !== "cancelled") running.add(`${t.routeId}|${t.startTime.slice(0, 5)}`);
+  }
   for (const t of tripRows) {
     const entry = result.get(t.routeId);
     if (!entry) continue;
+    const time = t.startTime.slice(0, 5);
     if (t.status === "planned" || t.status === "in_progress") {
-      entry.upcoming.push({ tripId: t.id, startTime: t.startTime.slice(0, 5), status: t.status });
-    } else if (t.status === "cancelled") {
-      entry.cancelled.push(t.startTime.slice(0, 5));
+      entry.upcoming.push({ tripId: t.id, startTime: time, status: t.status });
+    } else if (t.status === "cancelled" && !running.has(`${t.routeId}|${time}`) && !entry.cancelled.includes(time)) {
+      entry.cancelled.push(time);
     }
   }
   for (const v of versionRows) {
@@ -369,6 +383,11 @@ export interface Arrival {
   direction: "to_work" | "from_work";
   date: string;
   startTime: string;
+  /** the vehicle departure the trip was made from */
+  scheduleId: string | null;
+  /** which vehicle of this time, and how many leave together */
+  vehicleNo: number;
+  vehiclesAtTime: number;
   status: "planned" | "in_progress" | "completed" | "cancelled";
   stopId: string;
   stopName: string;
@@ -410,6 +429,9 @@ export async function getUpcomingArrivals(opts: UpcomingArrivalsOptions): Promis
       direction: routes.direction,
       date: trips.date,
       startTime: trips.startTime,
+      scheduleId: trips.scheduleId,
+      vehicleNo: tripVehicleNo,
+      vehiclesAtTime: tripVehiclesAtTime,
       status: trips.status,
       stopId: routeStops.stopId,
       stopName: stops.name,
@@ -497,6 +519,9 @@ export async function getUpcomingArrivals(opts: UpcomingArrivalsOptions): Promis
       direction: r.direction,
       date: r.date,
       startTime: r.startTime.slice(0, 5),
+      scheduleId: r.scheduleId,
+      vehicleNo: r.vehicleNo,
+      vehiclesAtTime: r.vehiclesAtTime,
       status: r.status,
       stopId: r.stopId,
       stopName: r.stopName,
@@ -632,6 +657,10 @@ export interface TripDetail {
   id: string;
   date: string;
   startTime: string;
+  scheduleId: string | null;
+  /** which vehicle of this time, and how many leave together */
+  vehicleNo: number;
+  vehiclesAtTime: number;
   status: "planned" | "in_progress" | "completed" | "cancelled";
   route: {
     id: string;
@@ -659,6 +688,8 @@ export async function getTrip(tripId: string, passengerId?: string): Promise<Tri
       versionId: tripVersionId,
       version: routeVersions.version,
       versionPath: routeVersions.path,
+      vehicleNo: tripVehicleNo,
+      vehiclesAtTime: tripVehiclesAtTime,
       vehicle: vehicles,
       driverId: drivers.userId,
       driverName: users.name,
@@ -706,6 +737,9 @@ export async function getTrip(tripId: string, passengerId?: string): Promise<Tri
     id: row.trip.id,
     date: row.trip.date,
     startTime: row.trip.startTime.slice(0, 5),
+    scheduleId: row.trip.scheduleId,
+    vehicleNo: row.vehicleNo,
+    vehiclesAtTime: row.vehiclesAtTime,
     status: row.trip.status,
     route: {
       id: row.route.id,
@@ -754,6 +788,8 @@ export async function getDriverTrips(driverId: string, date: string) {
       routeColor: routes.color,
       direction: routes.direction,
       description: routes.description,
+      vehicleNo: tripVehicleNo,
+      vehiclesAtTime: tripVehiclesAtTime,
       vehicleNumber: vehicles.number,
       vehicleModel: vehicles.model,
       vehicleCapacity: vehicles.capacity,
@@ -805,6 +841,7 @@ export async function getTripLoadRecords(q: LoadQuery): Promise<TripLoadRecord[]
       routeId: trips.routeId,
       date: trips.date,
       startTime: trips.startTime,
+      scheduleId: trips.scheduleId,
       capacity: vehicles.capacity,
       demand: sql<number>`(select count(*) from ${passengerTrips} pt where pt.trip_id = ${trips.id} and pt.status <> 'cancelled')`,
     })
@@ -841,6 +878,7 @@ export async function getTripLoadRecords(q: LoadQuery): Promise<TripLoadRecord[]
     date: r.date,
     startTime: r.startTime.slice(0, 5),
     weekday: weekdayOfDate(r.date),
+    scheduleId: r.scheduleId,
   }));
 }
 
@@ -944,13 +982,19 @@ export async function getRouteTrips(routeId: string, date: string) {
       date: trips.date,
       startTime: trips.startTime,
       status: trips.status,
+      scheduleId: trips.scheduleId,
+      vehicleNo: tripVehicleNo,
+      vehiclesAtTime: tripVehiclesAtTime,
+      vehicleNumber: vehicles.number,
       vehicleCapacity: vehicles.capacity,
+      driverName: users.name,
       booked: sql<number>`(select count(*) from ${passengerTrips} pt where pt.trip_id = ${trips.id} and pt.status <> 'cancelled')`,
     })
     .from(trips)
     .leftJoin(vehicles, eq(vehicles.id, trips.vehicleId))
+    .leftJoin(users, eq(users.id, trips.driverId))
     .where(and(eq(trips.routeId, routeId), eq(trips.date, date)))
-    .orderBy(asc(trips.startTime));
+    .orderBy(asc(trips.startTime), asc(tripVehicleNo));
   return rows.map((r) => ({ ...r, startTime: r.startTime.slice(0, 5), booked: Number(r.booked) }));
 }
 

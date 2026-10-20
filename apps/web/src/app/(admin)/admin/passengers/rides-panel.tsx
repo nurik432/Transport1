@@ -12,6 +12,7 @@ export interface RideRouteOption {
   id: string;
   name: string;
   direction: Direction;
+  /** `time` is the label shown in the list: "07:30" or "07:30 · машина 2" */
   departures: { scheduleId: string; time: string }[];
   stops: { id: string; name: string }[];
 }
@@ -21,7 +22,8 @@ export interface PassengerRide {
   scheduleId: string;
   direction: Direction;
   routeName: string;
-  departureTime: string;
+  /** "07:30", or "07:30 · машина 2" */
+  label: string;
   stopName: string;
 }
 
@@ -72,7 +74,7 @@ function DirectionRides({
         <div className="min-w-0">
           <p className="text-xs font-bold text-muted-foreground">{DIRECTION_LABEL[direction]}</p>
           <p className="truncate text-sm font-medium">
-            {current ? `${current.routeName} в ${current.departureTime} · ${current.stopName}` : "Не привязан"}
+            {current ? `${current.routeName} в ${current.label} · ${current.stopName}` : "Не привязан"}
           </p>
         </div>
         {current ? (
@@ -80,7 +82,7 @@ function DirectionRides({
             action={() => adminUnsubscribe(current.id)}
             label="Отвязать"
             className="text-danger"
-            confirm={`Снять привязку к рейсу ${current.departureTime}? Будущие записи пассажира на этот рейс удалятся.`}
+            confirm={`Снять привязку к рейсу ${current.label}? Будущие записи пассажира на этот рейс удалятся.`}
           />
         ) : null}
       </div>

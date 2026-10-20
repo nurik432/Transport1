@@ -21,6 +21,7 @@ import {
   type TrackingState,
 } from "@transport/domain";
 import { db, schema } from "./db";
+import { tripLabel, tripVehicleNo, tripVehiclesAtTime } from "./trip-vehicle";
 import { notify } from "./push";
 
 const { trips, routes, routeVersions, routeStops, stops, vehicles, vehiclePositions, passengerTrips, tripStopEvents, tripStopAlerts, settings } =
@@ -250,6 +251,8 @@ export interface LiveVehicle {
   routeColor: string;
   direction: "to_work" | "from_work";
   startTime: string;
+  /** "07:30", or "07:30 · машина 2" when several vehicles leave together */
+  label: string;
   vehicleNumber: string | null;
   driverName: string | null;
   lat: number;
@@ -282,6 +285,8 @@ export async function getLiveVehicles(now = new Date()): Promise<LiveVehicle[]> 
       direction: routes.direction,
       date: trips.date,
       startTime: trips.startTime,
+      vehicleNo: tripVehicleNo,
+      vehiclesAtTime: tripVehiclesAtTime,
       versionId: sql<string | null>`coalesce(${trips.routeVersionId}, ${routes.currentVersionId})`,
       vehicleNumber: vehicles.number,
       capacity: vehicles.capacity,
@@ -380,6 +385,7 @@ export async function getLiveVehicles(now = new Date()): Promise<LiveVehicle[]> 
       routeColor: r.routeColor,
       direction: r.direction,
       startTime: r.startTime.slice(0, 5),
+      label: tripLabel(r),
       vehicleNumber: r.vehicleNumber,
       capacity: r.capacity ?? null,
       driverName: r.driverName,
@@ -490,6 +496,8 @@ export interface LiveSignal {
   routeName: string;
   routeColor: string;
   startTime: string;
+  /** "07:30", or "07:30 · машина 2" when several vehicles leave together */
+  label: string;
   driverName: string | null;
   /** Phone of the assigned driver, so the card can offer to call. */
   driverPhone: string | null;
@@ -521,6 +529,8 @@ export async function getLiveSignals(now = new Date(), today?: string): Promise<
       routeName: routes.name,
       routeColor: routes.color,
       startTime: trips.startTime,
+      vehicleNo: tripVehicleNo,
+      vehiclesAtTime: tripVehiclesAtTime,
       status: trips.status,
       startedAt: trips.startedAt,
       driverName: schema.users.name,
@@ -558,7 +568,8 @@ export async function getLiveSignals(now = new Date(), today?: string): Promise<
     const trail = byTrip.get(t.tripId) ?? [];
     const lastAt = trail.at(-1)?.recordedAt ?? null;
     const time = t.startTime.slice(0, 5);
-    const who = [t.routeName, time].join(" · ");
+    const label = tripLabel(t);
+    const who = [t.routeName, label].join(" · ");
     const silentSec = lastAt ? Math.round((now.getTime() - lastAt.getTime()) / 1000) : null;
     const common = {
       tripId: t.tripId,
@@ -566,6 +577,7 @@ export async function getLiveSignals(now = new Date(), today?: string): Promise<
       routeName: t.routeName,
       routeColor: t.routeColor,
       startTime: time,
+      label,
       driverName: t.driverName,
       driverPhone: t.driverPhone,
       vehicleNumber: t.vehicleNumber,

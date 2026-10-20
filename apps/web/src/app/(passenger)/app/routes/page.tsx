@@ -31,7 +31,14 @@ export default async function RoutesPage({ searchParams }: { searchParams: Promi
     const fromSchedule = route.schedules
       .filter((s) => s.active && s.daysOfWeek.includes(now.weekday) && parseTimeToMinutes(s.departureTime) >= now.minutes)
       .map((s) => ({ time: s.departureTime, live: false }));
-    const departures = (fromTrips.length ? fromTrips : fromSchedule).slice(0, 3);
+    // Several vehicles at one time are one departure to choose from here; the
+    // route screen shows them apart. A time is live when any of its vehicles is.
+    const byTime = new Map<string, { time: string; live: boolean }>();
+    for (const d of fromTrips.length ? fromTrips : fromSchedule) {
+      const seen = byTime.get(d.time);
+      byTime.set(d.time, { time: d.time, live: (seen?.live ?? false) || d.live });
+    }
+    const departures = [...byTime.values()].slice(0, 3);
 
     return {
       id: route.id,

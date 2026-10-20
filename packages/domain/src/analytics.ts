@@ -7,6 +7,8 @@ export interface TripLoadRecord extends TripLoad {
   date: string; // YYYY-MM-DD
   startTime: string; // HH:MM
   weekday: number; // ISO 1..7
+  /** the departure (one vehicle at one time) the trip was made from */
+  scheduleId?: string | null;
 }
 
 export interface BucketStats {

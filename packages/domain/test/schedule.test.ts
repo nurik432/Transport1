@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { directionForMinutes, formatDistance, isoWeekday, nearestStops, plannedStopTimes, upcomingDepartures } from "../src";
+import {
+  departureLabel,
+  directionForMinutes,
+  formatDistance,
+  groupSchedulesByTime,
+  isoWeekday,
+  nearestStops,
+  plannedStopTimes,
+  upcomingDepartures,
+  vehiclesPerTime,
+} from "../src";
 
 const rs = [
   { stopId: "a", seq: 1, offsetMin: 0 },
@@ -70,5 +80,35 @@ describe("nearestStops", () => {
   it("formats distance", () => {
     expect(formatDistance(347)).toBe("350 м");
     expect(formatDistance(1234)).toBe("1,2 км");
+  });
+});
+
+describe("departureLabel", () => {
+  it("is just the time when one vehicle leaves", () => {
+    expect(departureLabel("07:30:00", 1, 1)).toBe("07:30");
+  });
+  it("names the vehicle when several leave together", () => {
+    expect(departureLabel("07:30", 2, 2)).toBe("07:30 · машина 2");
+  });
+});
+
+describe("groupSchedulesByTime", () => {
+  it("groups vehicles of one time, earliest time first", () => {
+    const groups = groupSchedulesByTime([
+      { id: "c", departureTime: "08:00:00", vehicleNo: 1 },
+      { id: "b", departureTime: "07:30:00", vehicleNo: 2 },
+      { id: "a", departureTime: "07:30:00", vehicleNo: 1 },
+    ]);
+    expect(groups.map((g) => [g.time, g.vehicles])).toEqual([
+      ["07:30", 2],
+      ["08:00", 1],
+    ]);
+    expect(groups[0]?.schedules.map((s) => s.id)).toEqual(["a", "b"]);
+  });
+
+  it("counts vehicles per time", () => {
+    const counts = vehiclesPerTime([{ departureTime: "07:30:00" }, { departureTime: "07:30" }, { departureTime: "08:00" }]);
+    expect(counts.get("07:30")).toBe(2);
+    expect(counts.get("08:00")).toBe(1);
   });
 });

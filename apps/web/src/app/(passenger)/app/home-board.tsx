@@ -4,6 +4,7 @@
  */
 import Link from "next/link";
 import {
+  departureLabel,
   formatDistance,
   formatEta,
   formatLocalTime,
@@ -152,7 +153,7 @@ export function EtaHero({
         <RouteBadge name={arrival.routeName} color={arrival.routeColor} size="lg" />
         <div className="flex flex-col gap-0.5">
           <p className="text-sm text-muted-foreground">
-            {arrival.direction === "to_work" ? "На работу" : "Домой"} · рейс {arrival.startTime}
+            {arrival.direction === "to_work" ? "На работу" : "Домой"} · рейс {departureLabel(arrival.startTime, arrival.vehicleNo, arrival.vehiclesAtTime)}
           </p>
           <p
             className={cx(
@@ -211,7 +212,7 @@ export function TripCard({
         <RouteBadge name={arrival.routeName} color={arrival.routeColor} size="lg" />
         <div className="min-w-0 flex-1">
           <p className="truncate font-semibold">
-            Рейс {arrival.startTime}
+            Рейс {departureLabel(arrival.startTime, arrival.vehicleNo, arrival.vehiclesAtTime)}
             {standing ? <span className="font-normal text-ink-muted"> · постоянный</span> : null}
           </p>
           <p className="truncate text-sm text-ink-muted">Посадка: {arrival.stopName}</p>

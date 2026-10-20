@@ -55,12 +55,74 @@ export async function materializeSubscriptions(db: DbOrTx, opts: MaterializeOpti
         where ${routeStops.versionId} = coalesce(${trips.routeVersionId}, ${routes.currentVersionId})
           and ${routeStops.stopId} = ${passengerSubscriptions.stopId}
       )
+      -- the passenger already chose another vehicle leaving at the same time that day
+      and not exists (
+        select 1 from passenger_trips pt_sib
+        join trips t_sib on t_sib.id = pt_sib.trip_id
+        where pt_sib.passenger_id = ${passengerSubscriptions.passengerId}
+          and pt_sib.status <> 'cancelled'
+          and t_sib.id <> ${trips.id}
+          and t_sib.route_id = ${trips.routeId}
+          and t_sib.date = ${trips.date}
+          and t_sib.start_time = ${trips.startTime}
+      )
       ${opts.passengerId ? sql`and ${passengerSubscriptions.passengerId} = ${opts.passengerId}` : sql``}
       ${opts.scheduleIds ? sql`and ${inArray(passengerSubscriptions.scheduleId, opts.scheduleIds)}` : sql``}
     on conflict ("passenger_id", "trip_id") do nothing
     returning "trip_id"
   `);
   return created.length;
+}
+
+/**
+ * Several vehicles may leave a route at the same time, and a passenger rides
+ * one of them. Booking a trip removes the passenger's upcoming booking on the
+ * other vehicles of that departure. A booking the passenger's subscription made
+ * is kept as `cancelled` ("not this one today"), or it would be made again.
+ */
+export async function dropSiblingBookings(db: DbOrTx, opts: { passengerId: string; tripId: string }): Promise<void> {
+  const siblings = sql`
+    select sib.id from trips sib join trips me on me.id = ${opts.tripId}
+    where sib.id <> me.id and sib.route_id = me.route_id and sib.date = me.date and sib.start_time = me.start_time
+  `;
+  await db.execute(sql`
+    update ${passengerTrips} set "status" = 'cancelled'
+    where ${passengerTrips.passengerId} = ${opts.passengerId}
+      and ${passengerTrips.status} = 'planned'
+      and ${passengerTrips.tripId} in (${siblings})
+      and exists (
+        select 1 from ${passengerSubscriptions} ps join trips t on t.schedule_id = ps.schedule_id
+        where ps.passenger_id = ${opts.passengerId} and t.id = ${passengerTrips.tripId}
+      )
+  `);
+  await db.execute(sql`
+    delete from ${passengerTrips}
+    where ${passengerTrips.passengerId} = ${opts.passengerId}
+      and ${passengerTrips.status} = 'planned'
+      and ${passengerTrips.tripId} in (${siblings})
+  `);
+}
+
+/**
+ * Before a subscription to one vehicle takes effect, remove the passenger's
+ * one-off bookings on the other vehicles of the same departure, on trips that
+ * have not run yet. Otherwise they would hold a seat in two buses at once.
+ */
+export async function dropSiblingBookingsForSchedule(
+  db: DbOrTx,
+  opts: { passengerId: string; scheduleId: string; today: string },
+): Promise<void> {
+  await db.execute(sql`
+    delete from ${passengerTrips}
+    where ${passengerTrips.passengerId} = ${opts.passengerId}
+      and ${passengerTrips.status} = 'planned'
+      and ${passengerTrips.tripId} in (
+        select sib.id from trips sib
+        join trips mine on mine.schedule_id = ${opts.scheduleId}
+          and mine.route_id = sib.route_id and mine.date = sib.date and mine.start_time = sib.start_time
+        where sib.id <> mine.id and sib.status = 'planned' and sib.date >= ${opts.today}
+      )
+  `);
 }
 
 export interface DropBookingsOptions {

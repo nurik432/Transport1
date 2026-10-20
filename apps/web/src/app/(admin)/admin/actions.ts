@@ -6,7 +6,10 @@ import { z } from "zod";
 import {
   addDays,
   canManageUser,
+  departureLabel,
+  MAX_VEHICLES_PER_DEPARTURE,
   validateRouteForm,
+  vehiclesPerTime,
   weekdayOfDate,
   type LoadThresholds,
   type RouteFormInput,
@@ -17,6 +20,7 @@ import { saveThresholds } from "@/lib/queries";
 import { notify } from "@/lib/push";
 import { rebuildAllRouteGeometry, rebuildVersionGeometry } from "@transport/db/routing";
 import { saveDeviationSettings } from "@/lib/live";
+import { tripLabel, tripVehicleNo, tripVehiclesAtTime } from "@/lib/trip-vehicle";
 import {
   attachPassenger,
   bookSubscribers,
@@ -180,7 +184,19 @@ const routeSchema = z.object({
     .default("#2563eb"),
   plannedCapacity: z.coerce.number().int().min(0).max(200).nullable().optional(),
   stops: z.array(routeStopSchema),
-  departures: z.array(z.string().regex(/^\d{2}:\d{2}$/, "Время в формате ЧЧ:ММ")).default([]),
+  departures: z
+    .array(
+      z.object({
+        time: z.string().regex(/^\d{2}:\d{2}$/, "Время в формате ЧЧ:ММ"),
+        vehicles: z.coerce
+          .number()
+          .int()
+          .min(1)
+          .max(MAX_VEHICLES_PER_DEPARTURE, `Машин на одно отправление — не больше ${MAX_VEHICLES_PER_DEPARTURE}`)
+          .default(1),
+      }),
+    )
+    .default([]),
   daysOfWeek: z.array(z.coerce.number().int().min(1).max(7)).default([1, 2, 3, 4, 5]),
   /** what changed, stored with the new version */
   versionNote: z.string().trim().max(200).optional(),
@@ -204,6 +220,22 @@ function routeFormInput(data: z.infer<typeof routeSchema>): RouteFormInput {
     departures: data.departures,
     daysOfWeek: data.daysOfWeek,
   };
+}
+
+/**
+ * The schedule rows a form asks for: one per vehicle of every departure,
+ * keyed "HH:MM#vehicleNo" so stored rows and wanted rows compare directly.
+ */
+function wantedSchedules(departures: readonly { time: string; vehicles: number }[]): Map<string, { time: string; vehicleNo: number }> {
+  const wanted = new Map<string, { time: string; vehicleNo: number }>();
+  for (const d of departures) {
+    for (let n = 1; n <= d.vehicles; n++) wanted.set(`${d.time}#${n}`, { time: d.time, vehicleNo: n });
+  }
+  return wanted;
+}
+
+function scheduleKey(s: { departureTime: string; vehicleNo: number }): string {
+  return `${s.departureTime.slice(0, 5)}#${s.vehicleNo}`;
 }
 
 /** Create stops for points placed on the map, and return the final stop ids. */
@@ -359,10 +391,12 @@ export async function saveRoute(input: unknown): Promise<ActionResult> {
     .select()
     .from(schema.routeSchedules)
     .where(eq(schema.routeSchedules.routeId, routeId));
-  const wanted = new Set(data.departures);
-  const toDelete = existingSchedules.filter((s) => !wanted.has(s.departureTime.slice(0, 5)));
-  const existingTimes = new Set(existingSchedules.map((s) => s.departureTime.slice(0, 5)));
-  const toInsert = data.departures.filter((t) => !existingTimes.has(t));
+  // One row per vehicle: a second bus at 07:30 is a row of its own, and taking
+  // it away removes that row only.
+  const wanted = wantedSchedules(data.departures);
+  const toDelete = existingSchedules.filter((s) => !wanted.has(scheduleKey(s)));
+  const existingKeys = new Set(existingSchedules.map(scheduleKey));
+  const toInsert = [...wanted.entries()].filter(([key]) => !existingKeys.has(key)).map(([, v]) => v);
 
   if (toDelete.length) {
     const ids = toDelete.map((s) => s.id);
@@ -377,7 +411,14 @@ export async function saveRoute(input: unknown): Promise<ActionResult> {
   if (toInsert.length) {
     await db
       .insert(schema.routeSchedules)
-      .values(toInsert.map((t) => ({ routeId: routeId!, departureTime: `${t}:00`, daysOfWeek: data.daysOfWeek })));
+      .values(
+        toInsert.map((t) => ({
+          routeId: routeId!,
+          departureTime: `${t.time}:00`,
+          vehicleNo: t.vehicleNo,
+          daysOfWeek: data.daysOfWeek,
+        })),
+      );
   }
   await db
     .update(schema.routeSchedules)
@@ -386,7 +427,7 @@ export async function saveRoute(input: unknown): Promise<ActionResult> {
 
   if (shapeChanged) {
     // A stop that left the route cannot be boarded at any more.
-    const kept = existingSchedules.filter((s) => wanted.has(s.departureTime.slice(0, 5))).map((s) => s.id);
+    const kept = existingSchedules.filter((s) => wanted.has(scheduleKey(s))).map((s) => s.id);
     const dropped = await dropSubscriptions({ scheduleIds: kept, keepStopIds: resolved.map((s) => s.stopId) });
     await notifyDroppedSubscriptions(dropped, "stop");
   }
@@ -466,11 +507,16 @@ export async function describeRouteSave(
   const today = new Date().toISOString().slice(0, 10);
 
   const schedules = await db
-    .select({ id: schema.routeSchedules.id, departureTime: schema.routeSchedules.departureTime })
+    .select({
+      id: schema.routeSchedules.id,
+      departureTime: schema.routeSchedules.departureTime,
+      vehicleNo: schema.routeSchedules.vehicleNo,
+    })
     .from(schema.routeSchedules)
     .where(eq(schema.routeSchedules.routeId, data.id));
-  const wanted = new Set(data.departures);
-  const removed = schedules.filter((s) => !wanted.has(s.departureTime.slice(0, 5)));
+  const wanted = wantedSchedules(data.departures);
+  const removed = schedules.filter((s) => !wanted.has(scheduleKey(s)));
+  const vehiclesBefore = vehiclesPerTime(schedules);
 
   let cancelledTripCount = 0;
   if (removed.length) {
@@ -519,7 +565,7 @@ export async function describeRouteSave(
     (await countDroppedSubscriptions({ scheduleIds: removed.map((r) => r.id) })) +
     (shapeChanged
       ? await countDroppedSubscriptions({
-          scheduleIds: schedules.filter((s) => wanted.has(s.departureTime.slice(0, 5))).map((s) => s.id),
+          scheduleIds: schedules.filter((s) => wanted.has(scheduleKey(s))).map((s) => s.id),
           keepStopIds: keptStopIds,
         })
       : 0);
@@ -531,7 +577,9 @@ export async function describeRouteSave(
       nextVersion: shapeChanged ? (latest[0]?.version ?? 0) + 1 : null,
       stopCountBefore: currentStops.length,
       stopCountAfter: data.stops.length,
-      removedDepartures: removed.map((r) => r.departureTime.slice(0, 5)).sort(),
+      removedDepartures: removed
+        .map((r) => departureLabel(r.departureTime, r.vehicleNo, vehiclesBefore.get(r.departureTime.slice(0, 5)) ?? 1))
+        .sort(),
       cancelledTripCount,
       movedTripCount,
       notifiedUserCount,
@@ -572,9 +620,9 @@ async function notifyDroppedSubscriptions(dropped: SubscriptionRow[], reason: "d
     await notify([s.passengerId], reason === "departure" ? "schedule_changed" : "route_changed", {
       title:
         reason === "departure"
-          ? `Рейс ${s.departureTime} маршрута ${s.routeName} убран из расписания`
+          ? `Рейс ${s.label} маршрута ${s.routeName} убран из расписания`
           : `Остановка «${s.stopName}» убрана из маршрута ${s.routeName}`,
-      body: `Привязка к рейсу ${s.departureTime} снята. Выберите другой рейс, чтобы ездить постоянно.`,
+      body: `Привязка к рейсу ${s.label} снята. Выберите другой рейс, чтобы ездить постоянно.`,
       url: `/app/routes/${s.routeId}`,
       tag: `subscription-${s.id}`,
       payload: { routeId: s.routeId },
@@ -806,7 +854,7 @@ export async function adminSubscribe(input: unknown): Promise<ActionResult> {
 
   const s = result.subscription;
   await notify([data.passengerId], "admin_message", {
-    title: `Вас привязали к рейсу ${s.departureTime} маршрута ${s.routeName}`,
+    title: `Вас привязали к рейсу ${s.label} маршрута ${s.routeName}`,
     body: `Посадка на остановке «${s.stopName}». Отметка «Поеду» будет ставиться сама; отвязаться можно в профиле.`,
     url: `/app/routes/${s.routeId}`,
     tag: `subscription-${s.id}`,
@@ -816,8 +864,8 @@ export async function adminSubscribe(input: unknown): Promise<ActionResult> {
   return {
     ok: true,
     message: result.replaced
-      ? `Привязан к рейсу ${s.departureTime} вместо ${result.replaced.departureTime}`
-      : `Привязан к рейсу ${s.departureTime}`,
+      ? `Привязан к рейсу ${s.label} вместо ${result.replaced.label}`
+      : `Привязан к рейсу ${s.label}`,
   };
 }
 
@@ -828,7 +876,7 @@ export async function adminUnsubscribe(subscriptionId: string): Promise<ActionRe
   if (!removed) return fail("Привязка не найдена");
 
   await notify([removed.passengerId], "admin_message", {
-    title: `Привязка к рейсу ${removed.departureTime} маршрута ${removed.routeName} снята`,
+    title: `Привязка к рейсу ${removed.label} маршрута ${removed.routeName} снята`,
     body: "Администратор снял постоянную запись. Привязаться снова можно на странице маршрута.",
     url: `/app/routes/${removed.routeId}`,
     tag: `subscription-${removed.id}`,
@@ -902,9 +950,11 @@ const generateSchema = z.object({
 });
 
 /**
- * Create trips from active schedules for a date range.
- * Vehicle and driver are copied from the route's most recent trip, or from the
- * driver whose default vehicle matches; unassigned trips can be filled in later.
+ * Create trips from active schedules for a date range: one trip per vehicle
+ * departure per day. Vehicle and driver are copied from the most recent trip of
+ * the same vehicle departure. A departure with no history yet borrows the
+ * route's last crew only when it is the only vehicle at its time; with several
+ * it stays unassigned, so one driver is never put on two buses at once.
  */
 export async function generateTrips(input: unknown): Promise<ActionResult> {
   await requireRole("admin");
@@ -921,6 +971,7 @@ export async function generateTrips(input: unknown): Promise<ActionResult> {
       scheduleId: schema.routeSchedules.id,
       routeId: schema.routeSchedules.routeId,
       departureTime: schema.routeSchedules.departureTime,
+      vehicleNo: schema.routeSchedules.vehicleNo,
       daysOfWeek: schema.routeSchedules.daysOfWeek,
       active: schema.routeSchedules.active,
     })
@@ -931,18 +982,46 @@ export async function generateTrips(input: unknown): Promise<ActionResult> {
 
   const routeIds = [...new Set(schedules.map((s) => s.routeId))];
   const lastAssignments = await db
-    .select({ routeId: schema.trips.routeId, vehicleId: schema.trips.vehicleId, driverId: schema.trips.driverId })
+    .select({
+      routeId: schema.trips.routeId,
+      scheduleId: schema.trips.scheduleId,
+      vehicleId: schema.trips.vehicleId,
+      driverId: schema.trips.driverId,
+    })
     .from(schema.trips)
     .where(inArray(schema.trips.routeId, routeIds))
     .orderBy(desc(schema.trips.date));
-  const assignment = new Map<string, { vehicleId: string | null; driverId: string | null }>();
-  for (const a of lastAssignments) if (!assignment.has(a.routeId)) assignment.set(a.routeId, a);
+  type Crew = { vehicleId: string | null; driverId: string | null };
+  const bySchedule = new Map<string, Crew>();
+  const byRoute = new Map<string, Crew>();
+  for (const a of lastAssignments) {
+    if (a.scheduleId && !bySchedule.has(a.scheduleId)) bySchedule.set(a.scheduleId, a);
+    if (!byRoute.has(a.routeId)) byRoute.set(a.routeId, a);
+  }
+  const vehiclesAt = new Map<string, number>();
+  for (const s of schedules) {
+    const key = `${s.routeId}|${s.departureTime}`;
+    vehiclesAt.set(key, (vehiclesAt.get(key) ?? 0) + 1);
+  }
 
   const existing = await db
-    .select({ routeId: schema.trips.routeId, date: schema.trips.date, startTime: schema.trips.startTime })
+    .select({
+      routeId: schema.trips.routeId,
+      scheduleId: schema.trips.scheduleId,
+      date: schema.trips.date,
+      startTime: schema.trips.startTime,
+      status: schema.trips.status,
+    })
     .from(schema.trips)
     .where(and(inArray(schema.trips.routeId, routeIds), gte(schema.trips.date, data.from), lte(schema.trips.date, data.to)));
-  const seen = new Set(existing.map((e) => `${e.routeId}|${e.date}|${e.startTime}`));
+  // A trip made from a schedule is keyed by it. A trip that lost its schedule
+  // (the vehicle was taken off) still occupies its time while it runs, but a
+  // cancelled one must not stop the vehicle from being added back.
+  const seen = new Set(
+    existing
+      .filter((e) => e.scheduleId || e.status !== "cancelled")
+      .map((e) => (e.scheduleId ? `${e.scheduleId}|${e.date}` : `${e.routeId}|${e.date}|${e.startTime}`)),
+  );
 
   const rows: (typeof schema.trips.$inferInsert)[] = [];
   for (let d = 0; d <= days; d++) {
@@ -950,11 +1029,13 @@ export async function generateTrips(input: unknown): Promise<ActionResult> {
     const weekday = weekdayOfDate(date);
     for (const s of schedules) {
       if (!s.daysOfWeek.includes(weekday)) continue;
-      if (seen.has(`${s.routeId}|${date}|${s.departureTime}`)) continue;
-      const a = assignment.get(s.routeId);
+      if (seen.has(`${s.scheduleId}|${date}`) || seen.has(`${s.routeId}|${date}|${s.departureTime}`)) continue;
+      const alone = (vehiclesAt.get(`${s.routeId}|${s.departureTime}`) ?? 1) === 1;
+      const a = bySchedule.get(s.scheduleId) ?? (alone ? byRoute.get(s.routeId) : undefined);
       rows.push({
         routeId: s.routeId,
         scheduleId: s.scheduleId,
+        vehicleNo: s.vehicleNo,
         vehicleId: a?.vehicleId ?? null,
         driverId: a?.driverId ?? null,
         date,
@@ -975,8 +1056,50 @@ export async function generateTrips(input: unknown): Promise<ActionResult> {
   };
 }
 
+/**
+ * Another trip leaving at the same moment that already has this driver or this
+ * vehicle: with two buses on one departure it is easy to pick the same person twice.
+ */
+async function crewClash(
+  trip: { id: string; date: string; startTime: string },
+  column: typeof schema.trips.driverId | typeof schema.trips.vehicleId,
+  value: string,
+): Promise<{ routeName: string; startTime: string } | null> {
+  const rows = await db
+    .select({ routeName: schema.routes.name, startTime: schema.trips.startTime })
+    .from(schema.trips)
+    .innerJoin(schema.routes, eq(schema.routes.id, schema.trips.routeId))
+    .where(
+      and(
+        eq(schema.trips.date, trip.date),
+        eq(schema.trips.startTime, trip.startTime),
+        ne(schema.trips.id, trip.id),
+        ne(schema.trips.status, "cancelled"),
+        eq(column, value),
+      ),
+    )
+    .limit(1);
+  return rows[0] ? { routeName: rows[0].routeName, startTime: rows[0].startTime.slice(0, 5) } : null;
+}
+
 export async function assignTrip(tripId: string, vehicleId: string | null, driverId: string | null): Promise<ActionResult> {
   await requireRole("admin");
+  const trip = (
+    await db
+      .select({ id: schema.trips.id, date: schema.trips.date, startTime: schema.trips.startTime })
+      .from(schema.trips)
+      .where(eq(schema.trips.id, tripId))
+      .limit(1)
+  )[0];
+  if (!trip) return fail("Рейс не найден");
+  if (driverId) {
+    const clash = await crewClash(trip, schema.trips.driverId, driverId);
+    if (clash) return fail(`Этот водитель уже ведёт рейс ${clash.routeName} в ${clash.startTime}`);
+  }
+  if (vehicleId) {
+    const clash = await crewClash(trip, schema.trips.vehicleId, vehicleId);
+    if (clash) return fail(`Этот транспорт уже стоит на рейсе ${clash.routeName} в ${clash.startTime}`);
+  }
   await db
     .update(schema.trips)
     .set({ vehicleId: vehicleId || null, driverId: driverId || null })
@@ -988,7 +1111,14 @@ export async function assignTrip(tripId: string, vehicleId: string | null, drive
 export async function cancelTrip(tripId: string): Promise<ActionResult> {
   await requireRole("admin");
   const rows = await db
-    .select({ routeId: schema.trips.routeId, date: schema.trips.date, startTime: schema.trips.startTime, driverId: schema.trips.driverId })
+    .select({
+      routeId: schema.trips.routeId,
+      date: schema.trips.date,
+      startTime: schema.trips.startTime,
+      vehicleNo: tripVehicleNo,
+      vehiclesAtTime: tripVehiclesAtTime,
+      driverId: schema.trips.driverId,
+    })
     .from(schema.trips)
     .where(eq(schema.trips.id, tripId))
     .limit(1);
@@ -1006,7 +1136,7 @@ export async function cancelTrip(tripId: string): Promise<ActionResult> {
 
   if (recipients.length) {
     await notify(recipients, "trip_cancelled", {
-      title: `Рейс ${trip.startTime.slice(0, 5)} отменён`,
+      title: `Рейс ${tripLabel(trip)} отменён`,
       body: `Маршрут ${routeRows[0]?.name ?? ""} на ${trip.date}. Выберите другой рейс.`,
       url: "/app",
       tag: `trip-cancel-${tripId}`,

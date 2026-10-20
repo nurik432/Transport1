@@ -208,6 +208,11 @@ export const routeSchedules = pgTable(
       .notNull()
       .references(() => routes.id, { onDelete: "cascade" }),
     departureTime: time("departure_time").notNull(),
+    /**
+     * Which vehicle of this departure time: 1, 2, 3 … One row is one vehicle,
+     * so a time served by two buses is two rows and two trips a day.
+     */
+    vehicleNo: integer("vehicle_no").notNull().default(1),
     // ISO weekday numbers: 1 = Monday ... 7 = Sunday
     daysOfWeek: integer("days_of_week")
       .array()
@@ -217,7 +222,7 @@ export const routeSchedules = pgTable(
     validFrom: date("valid_from"),
     validTo: date("valid_to"),
   },
-  (t) => [uniqueIndex("route_schedules_route_time_idx").on(t.routeId, t.departureTime)],
+  (t) => [uniqueIndex("route_schedules_route_time_vehicle_idx").on(t.routeId, t.departureTime, t.vehicleNo)],
 );
 
 // ---------- Operations: trips & facts ----------
@@ -232,6 +237,12 @@ export const trips = pgTable(
     /** the route shape this trip follows; pinned when the trip is created */
     routeVersionId: uuid("route_version_id").references(() => routeVersions.id, { onDelete: "set null" }),
     scheduleId: uuid("schedule_id").references(() => routeSchedules.id, { onDelete: "set null" }),
+    /**
+     * Which vehicle of its departure time this trip is, copied from the schedule
+     * when the trip is made. Kept on the trip so history still says "машина 2"
+     * after that vehicle is taken off the schedule.
+     */
+    vehicleNo: integer("vehicle_no").notNull().default(1),
     vehicleId: uuid("vehicle_id").references(() => vehicles.id, { onDelete: "set null" }),
     driverId: uuid("driver_id").references(() => drivers.userId, { onDelete: "set null" }),
     date: date("date").notNull(),
@@ -242,7 +253,9 @@ export const trips = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex("trips_route_date_time_idx").on(t.routeId, t.date, t.startTime),
+    // One trip per vehicle departure per day; several vehicles may share a time.
+    uniqueIndex("trips_schedule_date_idx").on(t.scheduleId, t.date).where(sql`${t.scheduleId} is not null`),
+    index("trips_route_date_time_idx").on(t.routeId, t.date, t.startTime),
     index("trips_date_idx").on(t.date),
     index("trips_driver_date_idx").on(t.driverId, t.date),
   ],

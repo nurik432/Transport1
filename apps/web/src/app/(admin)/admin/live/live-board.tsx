@@ -14,6 +14,8 @@ export interface LiveVehicleDto {
   routeColor: string;
   direction: "to_work" | "from_work";
   startTime: string;
+  /** "07:30", or "07:30 · машина 2" when several vehicles leave together */
+  label: string;
   vehicleNumber: string | null;
   driverName: string | null;
   lat: number;
@@ -36,6 +38,7 @@ export interface LiveSignalDto {
   routeName: string;
   routeColor: string;
   startTime: string;
+  label: string;
   driverName: string | null;
   vehicleNumber: string | null;
   booked: number;
@@ -167,7 +170,7 @@ export function LiveBoard({
             id: v.tripId,
             lat: v.lat,
             lng: v.lng,
-            label: `${v.routeName} · ${v.startTime}`,
+            label: `${v.routeName} · ${v.label}`,
             color: v.routeColor,
             stale: v.tracking !== "live",
             alert: (v.offRouteM ?? 0) > OFF_ROUTE_M,
@@ -219,7 +222,7 @@ export function LiveBoard({
                 <div className="flex flex-col gap-2 rounded-[14px] p-3.5 shadow-[inset_0_0_0_2px_var(--color-warn-border)]">
                   <div className="flex items-center gap-2.5">
                     <RouteBadge name={s.routeName} color={s.routeColor} />
-                    <span className="flex-1 text-[15px] font-bold">Рейс {s.startTime}</span>
+                    <span className="flex-1 text-[15px] font-bold">Рейс {s.label}</span>
                     <span className="rounded-md bg-warn-soft px-2 py-0.5 text-xs font-bold text-warn-foreground">
                       не выехал
                     </span>
@@ -252,7 +255,7 @@ export function LiveBoard({
                   >
                     <div className="flex items-center gap-2.5">
                       <RouteBadge name={v.routeName} color={v.routeColor} />
-                      <span className="flex-1 text-[15px] font-bold">Рейс {v.startTime}</span>
+                      <span className="flex-1 text-[15px] font-bold">Рейс {v.label}</span>
                       {offRoute ? (
                         <span className="rounded-md bg-warn-soft px-2 py-0.5 text-xs font-bold text-warn-foreground">
                           {Math.round(v.offRouteM!)} м от линии

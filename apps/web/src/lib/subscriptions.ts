@@ -1,7 +1,11 @@
 import "server-only";
-import { and, asc, eq, inArray } from "drizzle-orm";
-import { formatMinutes, localNow, validatePause } from "@transport/domain";
-import { dropFutureBookings, materializeSubscriptions } from "@transport/db/subscriptions";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { departureLabel, formatMinutes, localNow, validatePause } from "@transport/domain";
+import {
+  dropFutureBookings,
+  dropSiblingBookingsForSchedule,
+  materializeSubscriptions,
+} from "@transport/db/subscriptions";
 import { db, schema } from "./db";
 
 /**
@@ -20,6 +24,11 @@ export interface SubscriptionRow {
   scheduleId: string;
   /** "HH:MM" */
   departureTime: string;
+  /** which vehicle of this time, and how many leave together */
+  vehicleNo: number;
+  vehiclesAtTime: number;
+  /** "07:30", or "07:30 · машина 2" when several vehicles leave at that time */
+  label: string;
   routeId: string;
   routeName: string;
   routeColor: string;
@@ -45,6 +54,11 @@ export async function listSubscriptions(passengerId?: string): Promise<Subscript
       passengerId: passengerSubscriptions.passengerId,
       scheduleId: passengerSubscriptions.scheduleId,
       departureTime: routeSchedules.departureTime,
+      vehicleNo: routeSchedules.vehicleNo,
+      vehiclesAtTime: sql<number>`(
+        select count(*) from ${routeSchedules} rs_all
+        where rs_all.route_id = "route_schedules"."route_id" and rs_all.departure_time = "route_schedules"."departure_time"
+      )`.mapWith(Number),
       routeId: routes.id,
       routeName: routes.name,
       routeColor: routes.color,
@@ -60,7 +74,11 @@ export async function listSubscriptions(passengerId?: string): Promise<Subscript
     .where(passengerId ? eq(passengerSubscriptions.passengerId, passengerId) : undefined)
     // morning before evening
     .orderBy(asc(routeSchedules.departureTime));
-  return rows.map((r) => ({ ...r, departureTime: r.departureTime.slice(0, 5) }));
+  return rows.map((r) => ({
+    ...r,
+    departureTime: r.departureTime.slice(0, 5),
+    label: departureLabel(r.departureTime, r.vehicleNo, r.vehiclesAtTime),
+  }));
 }
 
 /**
@@ -130,6 +148,8 @@ export async function attachPassenger(input: {
     // Bookings already made for this departure move to the subscription's stop;
     // declined days stay declined.
     await dropFutureBookings(tx, { passengerId, today: time.today, scheduleIds: [scheduleId], onlyPlanned: true });
+    // One-off seats on another vehicle of the same departure give way to the chosen one.
+    await dropSiblingBookingsForSchedule(tx, { passengerId, scheduleId, today: time.today });
     return materializeSubscriptions(tx, { ...time, passengerId, scheduleIds: [scheduleId] });
   });
 

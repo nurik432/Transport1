@@ -1,5 +1,5 @@
 import { asc, eq, sql } from "drizzle-orm";
-import { addDays, localNow, pauseLabel } from "@transport/domain";
+import { addDays, departureLabel, localNow, pauseLabel, vehiclesPerTime } from "@transport/domain";
 import { requireRole } from "@/lib/auth";
 import { db, schema } from "@/lib/db";
 import { listRoutes } from "@/lib/queries";
@@ -46,12 +46,21 @@ export default async function PassengersPage({
   const ridersBySchedule = new Map<string, number>();
   for (const s of subscriptions) ridersBySchedule.set(s.scheduleId, (ridersBySchedule.get(s.scheduleId) ?? 0) + 1);
 
+  // "07:30 · машина 2" wherever a time has several vehicles.
+  const scheduleLabel = new Map<string, string>();
+  for (const r of routes) {
+    const counts = vehiclesPerTime(r.schedules);
+    for (const s of r.schedules) {
+      scheduleLabel.set(s.id, departureLabel(s.departureTime, s.vehicleNo, counts.get(s.departureTime) ?? 1));
+    }
+  }
+
   // The last stop is where everyone gets off, so it is not offered for boarding.
   const rideOptions: RideRouteOption[] = routes.map((r) => ({
     id: r.id,
     name: r.name,
     direction: r.direction,
-    departures: r.schedules.filter((s) => s.active).map((s) => ({ scheduleId: s.id, time: s.departureTime })),
+    departures: r.schedules.filter((s) => s.active).map((s) => ({ scheduleId: s.id, time: scheduleLabel.get(s.id) ?? s.departureTime })),
     stops: r.stops.slice(0, -1).map((s) => ({ id: s.stopId, name: s.name })),
   }));
 
@@ -95,7 +104,7 @@ export default async function PassengersPage({
               <optgroup key={r.id} label={`${r.name} · ${r.direction === "to_work" ? "утро" : "вечер"}`}>
                 {r.schedules.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {r.name} · {s.departureTime} — привязано: {ridersBySchedule.get(s.id) ?? 0}
+                    {r.name} · {scheduleLabel.get(s.id) ?? s.departureTime} — привязано: {ridersBySchedule.get(s.id) ?? 0}
                   </option>
                 ))}
               </optgroup>
@@ -126,7 +135,7 @@ export default async function PassengersPage({
                     <span className="flex flex-col py-1.5 leading-snug">
                       {rides.map((s) => (
                         <span key={s.id}>
-                          {s.routeName} · {s.departureTime}
+                          {s.routeName} · {s.label}
                           <span className="text-muted-foreground"> · {s.stopName}</span>
                         </span>
                       ))}
@@ -153,7 +162,7 @@ export default async function PassengersPage({
                       scheduleId: s.scheduleId,
                       direction: s.direction,
                       routeName: s.routeName,
-                      departureTime: s.departureTime,
+                      label: s.label,
                       stopName: s.stopName,
                     }))}
                   />

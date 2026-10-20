@@ -1,5 +1,7 @@
 /** Shapes the route editor passes around. No logic lives here. */
 
+import type { RouteDeparture } from "@transport/domain";
+
 export interface StopOption {
   id: string;
   name: string;
@@ -43,7 +45,8 @@ export interface RouteEditorInit {
   /** empty string means "not set" */
   plannedCapacity: string;
   stops: EditorPointInit[];
-  departures: string[];
+  /** each time with how many vehicles leave at it */
+  departures: RouteDeparture[];
   daysOfWeek: number[];
 }
 

@@ -4,6 +4,7 @@ import { durationLabel, formatLocalDate, formatLocalTime, localNow, parseTimeToM
 import { requireRole } from "@/lib/auth";
 import { getTrip } from "@/lib/queries";
 import { getDeviationSettings } from "@/lib/live";
+import { tripLabel } from "@/lib/trip-vehicle";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { RouteBadge } from "@/components/ui";
 import { IconArrowLeft, IconCheck } from "@/components/icons";
@@ -49,7 +50,7 @@ export default async function DriverTripPage({ params }: { params: Promise<{ id:
           tripId={trip.id}
           routeName={trip.route.name}
           routeColor={trip.route.color}
-          startTime={trip.startTime}
+          startTime={tripLabel(trip)}
           capacity={trip.vehicle?.capacity ?? null}
           path={trip.route.path}
           stops={stops}
@@ -75,7 +76,14 @@ export default async function DriverTripPage({ params }: { params: Promise<{ id:
         className="h-8 min-w-9 justify-center rounded-lg px-2 text-base font-extrabold"
       />
       <div className="flex min-w-0 flex-1 flex-col">
-        <h1 className="truncate text-[17px] font-bold">Рейс {trip.startTime}</h1>
+        <h1 className="truncate text-[17px] font-bold">
+          Рейс {trip.startTime}
+          {trip.vehiclesAtTime > 1 ? (
+            <span className="ml-1.5 text-[13px] font-semibold text-muted-foreground">
+              машина {trip.vehicleNo} из {trip.vehiclesAtTime}
+            </span>
+          ) : null}
+        </h1>
         {/* Time first: on a long route name truncation must not eat it. */}
         <p className="truncate text-[13px] text-muted-foreground">
           {trip.status === "planned" ? `${untilLabel(trip.startTime, now.minutes, trip.date, now.date)} · ` : ""}

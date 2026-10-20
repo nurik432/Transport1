@@ -71,6 +71,13 @@
       "when": 1792469987350,
       "tag": "0009_attendance_reminders",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1792494968049,
+      "tag": "0010_multi_vehicle_departures",
+      "breakpoints": true
     }
   ]
 }

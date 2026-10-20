@@ -80,11 +80,11 @@ async function findRoutesNotRunning(
       direction: schema.routes.direction,
       departures: sql<number>`(
         select count(*) from ${schema.routeSchedules}
-        where ${schema.routeSchedules.routeId} = ${schema.routes.id} and ${schema.routeSchedules.active}
+        where ${schema.routeSchedules.routeId} = "routes"."id" and ${schema.routeSchedules.active}
       )`,
       trips: sql<number>`(
         select count(*) from ${schema.trips}
-        where ${schema.trips.routeId} = ${schema.routes.id}
+        where ${schema.trips.routeId} = "routes"."id"
           and ${schema.trips.status} = 'planned'
           and ${schema.trips.date} between ${fromDate} and ${toDate}
       )`,
@@ -162,7 +162,7 @@ export const getAttention = cache(async (): Promise<AttentionItem[]> => {
         kind: "not_started",
         tone: "warn",
         tag: "Не начат",
-        title: `${where} рейс ${s.startTime} не выехал`,
+        title: `${where} рейс ${s.label} не выехал`,
         details:
           `Прошло ${durationLabel(s.lateMin ?? 0)}. ${s.driverName ? `Водитель ${s.driverName}` : "Водитель"} не нажал «Начать рейс»` +
           (s.booked > 0 ? `, записались ${s.booked}.` : "."),
@@ -181,7 +181,7 @@ export const getAttention = cache(async (): Promise<AttentionItem[]> => {
         tag: "Отклонение",
         title: `${where} в ${s.offRouteM} м от линии маршрута`,
         details:
-          `Рейс ${s.startTime}` +
+          `Рейс ${s.label}` +
           (s.silentSec !== null ? `, GPS обновлён ${s.silentSec} с назад.` : ", данных GPS нет.") +
           (s.driverName ? ` Водитель ${s.driverName}.` : ""),
         actions: [{ label: "Показать на карте", href: `/admin/live?trip=${s.tripId}`, primary: true }],
@@ -192,7 +192,7 @@ export const getAttention = cache(async (): Promise<AttentionItem[]> => {
         kind: "no_tracking",
         tone: "warn",
         tag: "Нет GPS",
-        title: `${where} рейс ${s.startTime} не передаёт координаты`,
+        title: `${where} рейс ${s.label} не передаёт координаты`,
         details: s.details,
         actions: [{ label: "Показать на карте", href: `/admin/live?trip=${s.tripId}`, primary: true }],
       });

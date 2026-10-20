@@ -88,16 +88,27 @@ export function TripAssignment({
   const [vehicle, setVehicle] = useState(vehicleId);
   const [driver, setDriver] = useState(driverId);
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [pending, start] = useTransition();
 
   const complete = Boolean(vehicle && driver);
 
   function save(nextVehicle: string, nextDriver: string) {
+    const before = { vehicle, driver };
     setSaved(false);
+    setError(null);
     start(async () => {
-      await assignTrip(tripId, nextVehicle || null, nextDriver || null);
-      setSaved(true);
+      const res = await assignTrip(tripId, nextVehicle || null, nextDriver || null);
+      if (res.ok) {
+        setSaved(true);
+        return;
+      }
+      // The server refused (e.g. the driver already drives another bus at this
+      // time): put the selects back so the screen shows what is stored.
+      setVehicle(before.vehicle);
+      setDriver(before.driver);
+      setError(res.error ?? "Не удалось сохранить назначение");
     });
   }
 
@@ -169,6 +180,11 @@ export function TripAssignment({
       </label>
       {pending ? <span className="pb-2 text-xs text-muted-foreground">Сохранение…</span> : null}
       {saved && !pending ? <span className="pb-2 text-xs text-ok">Сохранено</span> : null}
+      {error && !pending ? (
+        <span role="alert" className="basis-full text-xs font-medium text-danger">
+          {error}
+        </span>
+      ) : null}
     </div>
   );
 }
