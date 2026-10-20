@@ -76,21 +76,56 @@ function confidenceOf(samples: number, basis: ForecastBasis): Confidence {
  * Expected number of passengers for a departure on a future date.
  * Narrows to the closest comparable group that has enough history.
  */
+export interface ForecastTarget {
+  date: string;
+  startTime: string;
+  /** the departure of one vehicle; narrows the history to that vehicle when it has some */
+  scheduleId?: string | null;
+  /** vehicles leaving at this time (default 1); without the vehicle's own history the demand is split between them */
+  vehiclesAtTime?: number;
+}
+
+/**
+ * Past trips of the same departure time, as comparable to the target vehicle.
+ * When several vehicles leave together the passengers pick one, so the
+ * vehicle's own history is the best guide; a vehicle that has none yet gets an
+ * equal share of what the time carried before.
+ */
+function sameTimeHistory(
+  history: readonly TripLoadRecord[],
+  target: ForecastTarget,
+): { records: TripLoadRecord[]; share: number } {
+  const time = target.startTime.slice(0, 5);
+  const atTime = history.filter((r) => r.startTime.slice(0, 5) === time);
+  if (target.scheduleId) {
+    const own = atTime.filter((r) => r.scheduleId === target.scheduleId);
+    if (own.length > 0) return { records: own, share: 1 };
+  }
+  const vehicles = Math.max(1, target.vehiclesAtTime ?? 1);
+  // History from days when this time already had several vehicles is per vehicle already.
+  const perDay = new Map<string, number>();
+  for (const r of atTime) perDay.set(r.date, (perDay.get(r.date) ?? 0) + 1);
+  const single = atTime.filter((r) => (perDay.get(r.date) ?? 1) === 1);
+  if (vehicles > 1 && single.length > 0) return { records: single, share: 1 / vehicles };
+  return { records: atTime, share: 1 };
+}
+
 export function forecastDemand(
   history: readonly TripLoadRecord[],
-  target: { date: string; startTime: string },
+  target: ForecastTarget,
   options: ForecastOptions = {},
 ): DemandForecast {
   const halfLife = options.halfLifeDays ?? 14;
   const minSamples = options.minSamples ?? 3;
   const weekday = weekdayOfDate(target.date);
-  const time = target.startTime.slice(0, 5);
+  const sameTime = sameTimeHistory(history, target);
+  const routeShare = 1 / Math.max(1, target.vehiclesAtTime ?? 1);
 
-  const groups: { basis: ForecastBasis; records: TripLoadRecord[] }[] = [
-    { basis: "same_time_weekday", records: history.filter((r) => r.startTime.slice(0, 5) === time && r.weekday === weekday) },
-    { basis: "same_time", records: history.filter((r) => r.startTime.slice(0, 5) === time) },
-    { basis: "same_weekday", records: history.filter((r) => r.weekday === weekday) },
-    { basis: "route", records: [...history] },
+  const groups: { basis: ForecastBasis; records: TripLoadRecord[]; share: number }[] = [
+    { basis: "same_time_weekday", records: sameTime.records.filter((r) => r.weekday === weekday), share: sameTime.share },
+    { basis: "same_time", records: sameTime.records, share: sameTime.share },
+    { basis: "same_weekday", records: history.filter((r) => r.weekday === weekday), share: routeShare },
+    { basis: "route", records: [...history], share: routeShare },
   ];
 
   const chosen =
@@ -101,10 +136,11 @@ export function forecastDemand(
   }
 
   const values = chosen.records.map((r) => r.effective);
+  const share = chosen.share;
   return {
-    expected: Math.round(weightedAverage(chosen.records, target.date, halfLife)),
-    low: Math.min(...values),
-    high: Math.max(...values),
+    expected: Math.round(weightedAverage(chosen.records, target.date, halfLife) * share),
+    low: Math.round(Math.min(...values) * share),
+    high: Math.round(Math.max(...values) * share),
     samples: chosen.records.length,
     basis: chosen.basis,
     confidence: confidenceOf(chosen.records.length, chosen.basis),
@@ -144,7 +180,7 @@ export const DEFAULT_RISK: RiskThresholds = { overflowRatio: 1, lowRatio: 0.4 };
 
 /** Attach a forecast and a risk verdict to one upcoming trip. */
 export function forecastTrip(
-  trip: { tripId: string; date: string; startTime: string; capacity: number | null },
+  trip: ForecastTarget & { tripId: string; capacity: number | null },
   history: readonly TripLoadRecord[],
   options: ForecastOptions & { risk?: RiskThresholds } = {},
 ): TripForecast {
@@ -170,7 +206,16 @@ export function forecastTrip(
     }
   }
 
-  return { ...forecast, ...trip, capacity, loadPct, shortfall, risk };
+  return {
+    ...forecast,
+    tripId: trip.tripId,
+    date: trip.date,
+    startTime: trip.startTime,
+    capacity,
+    loadPct,
+    shortfall,
+    risk,
+  };
 }
 
 export interface PeakHint {
@@ -182,17 +227,31 @@ export interface PeakHint {
 
 /**
  * Departure times where demand is expected to exceed capacity, worst first.
- * Used to suggest where an extra trip would help most.
+ * Used to suggest where an extra trip would help most. Vehicles leaving at the
+ * same time on the same day count as one departure: their seats add up.
  */
 export function peakDepartures(forecasts: readonly TripForecast[]): PeakHint[] {
-  const byTime = new Map<string, { expected: number; capacity: number | null; shortfall: number; n: number }>();
+  // First the departure of each day, all its vehicles together.
+  const slots = new Map<string, { startTime: string; expected: number; capacity: number | null; shortfall: number; risky: boolean }>();
   for (const f of forecasts) {
-    if (f.risk !== "overflow" && f.risk !== "tight") continue;
-    const cur = byTime.get(f.startTime) ?? { expected: 0, capacity: f.capacity, shortfall: 0, n: 0 };
+    const key = `${f.date}|${f.startTime}`;
+    const cur = slots.get(key) ?? { startTime: f.startTime, expected: 0, capacity: null, shortfall: 0, risky: false };
     cur.expected += f.expected;
+    cur.capacity = f.capacity === null ? cur.capacity : (cur.capacity ?? 0) + f.capacity;
     cur.shortfall += f.shortfall;
+    cur.risky ||= f.risk === "overflow" || f.risk === "tight";
+    slots.set(key, cur);
+  }
+
+  // Then the average over the days, per time.
+  const byTime = new Map<string, { expected: number; capacity: number | null; shortfall: number; n: number }>();
+  for (const slot of slots.values()) {
+    if (!slot.risky) continue;
+    const cur = byTime.get(slot.startTime) ?? { expected: 0, capacity: slot.capacity, shortfall: 0, n: 0 };
+    cur.expected += slot.expected;
+    cur.shortfall += slot.shortfall;
     cur.n += 1;
-    byTime.set(f.startTime, cur);
+    byTime.set(slot.startTime, cur);
   }
   return [...byTime.entries()]
     .map(([startTime, v]) => ({

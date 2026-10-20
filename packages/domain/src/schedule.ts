@@ -67,3 +67,54 @@ export function upcomingDepartures(
     .sort((a, b) => a.departureMin - b.departureMin)
     .slice(0, limit);
 }
+
+/** Most vehicles one departure time may have. */
+export const MAX_VEHICLES_PER_DEPARTURE = 5;
+
+/**
+ * How a departure is named to people. One vehicle at that time: just the time.
+ * Several: the time and which vehicle it is, so "07:30" never means two things.
+ */
+export function departureLabel(time: string, vehicleNo: number, vehiclesAtTime: number): string {
+  const hhmm = time.slice(0, 5);
+  return vehiclesAtTime > 1 ? `${hhmm} · машина ${vehicleNo}` : hhmm;
+}
+
+export interface DepartureGroup<T> {
+  /** "HH:MM" */
+  time: string;
+  /** how many vehicles leave at this time */
+  vehicles: number;
+  /** the schedules of this time, vehicle 1 first */
+  schedules: T[];
+}
+
+/** Schedules of one route grouped by departure time, earliest first. */
+export function groupSchedulesByTime<T extends { departureTime: string; vehicleNo: number }>(
+  schedules: readonly T[],
+): DepartureGroup<T>[] {
+  const byTime = new Map<string, T[]>();
+  for (const s of schedules) {
+    const time = s.departureTime.slice(0, 5);
+    const list = byTime.get(time);
+    if (list) list.push(s);
+    else byTime.set(time, [s]);
+  }
+  return [...byTime.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([time, list]) => ({
+      time,
+      vehicles: list.length,
+      schedules: [...list].sort((a, b) => a.vehicleNo - b.vehicleNo),
+    }));
+}
+
+/** How many schedules share each departure time, keyed by "HH:MM". */
+export function vehiclesPerTime(schedules: readonly { departureTime: string }[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const s of schedules) {
+    const time = s.departureTime.slice(0, 5);
+    counts.set(time, (counts.get(time) ?? 0) + 1);
+  }
+  return counts;
+}

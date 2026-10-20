@@ -75,6 +75,8 @@ interface LineDef {
   evening: string[];
   vehicle: number; // index into VEHICLES
   driver: number; // index into DRIVERS
+  /** a second vehicle on the busiest departures: the morning and evening time it adds to */
+  second?: { morning: string; evening: string; vehicle: number; driver: number };
   /** number of passengers assigned to this line */
   passengers: number;
   /** weights of morning departures for passenger preference */
@@ -117,6 +119,8 @@ const LINES: LineDef[] = [
     evening: ["17:30", "18:00", "18:30"],
     vehicle: 0,
     driver: 0,
+    // 07:30 and 18:00 do not fit into one bus, so a minibus leaves alongside it.
+    second: { morning: "07:30", evening: "18:00", vehicle: 3, driver: 3 },
     passengers: 66,
     morningWeights: [0.25, 0.6, 0.15],
     walkIns: [1, 4],
@@ -234,9 +238,8 @@ async function main() {
     routeId: string;
     versionId: string;
     routeStops: { stopId: string; stopKey: StopKey; seq: number; offsetMin: number }[];
-    schedules: { id: string; departureTime: string }[];
-    vehicle: (typeof vehicleRows)[number];
-    driverId: string;
+    /** one per vehicle departure; `slot` is the index of the time in the line's list */
+    schedules: { id: string; departureTime: string; vehicleNo: number; slot: number; vehicle: (typeof vehicleRows)[number]; driverId: string }[];
   }
   const routeCtxs: RouteCtx[] = [];
   for (const line of LINES) {
@@ -269,9 +272,16 @@ async function main() {
       }));
       await db.insert(s.routeStops).values(rsValues);
       const times = direction === "to_work" ? line.morning : line.evening;
+      const secondTime = line.second ? (direction === "to_work" ? line.second.morning : line.second.evening) : null;
+      const plan = times.flatMap((t, slot) => {
+        const first = { time: t, slot, vehicleNo: 1, vehicle: line.vehicle, driver: line.driver };
+        return line.second && t === secondTime
+          ? [first, { time: t, slot, vehicleNo: 2, vehicle: line.second.vehicle, driver: line.second.driver }]
+          : [first];
+      });
       const scheduleRows = await db
         .insert(s.routeSchedules)
-        .values(times.map((t) => ({ routeId: route!.id, departureTime: t, daysOfWeek: [1, 2, 3, 4, 5] })))
+        .values(plan.map((p) => ({ routeId: route!.id, departureTime: p.time, vehicleNo: p.vehicleNo, daysOfWeek: [1, 2, 3, 4, 5] })))
         .returning();
       routeCtxs.push({
         line,
@@ -279,9 +289,14 @@ async function main() {
         routeId: route!.id,
         versionId: version!.id,
         routeStops: rsValues.map((v, i) => ({ ...v, stopKey: ordered[i]!.key })),
-        schedules: scheduleRows.map((r) => ({ id: r.id, departureTime: r.departureTime })),
-        vehicle: vehicleRows[line.vehicle]!,
-        driverId: driverUsers[line.driver]!.id,
+        schedules: scheduleRows.map((r, i) => ({
+          id: r.id,
+          departureTime: r.departureTime,
+          vehicleNo: r.vehicleNo,
+          slot: plan[i]!.slot,
+          vehicle: vehicleRows[plan[i]!.vehicle]!,
+          driverId: driverUsers[plan[i]!.driver]!.id,
+        })),
       });
     }
   }
@@ -295,6 +310,8 @@ async function main() {
     eveningIdx: number;
     attendance: number;
     booking: number;
+    /** which vehicle the passenger takes where a time has two */
+    vehicleNo: number;
   }
   const passengerCtxs: PassengerCtx[] = [];
   let phoneCounter = 1;
@@ -340,6 +357,8 @@ async function main() {
         eveningIdx: Math.floor(rnd() * line.evening.length),
         attendance: 0.75 + rnd() * 0.2,
         booking: 0.55 + rnd() * 0.35,
+        // the minibus is smaller, so fewer people pick it
+        vehicleNo: rnd() < 0.35 ? 2 : 1,
       });
       // favorites: home stop + morning route
       const morningRoute = routeCtxs.find((rc) => rc.line === line && rc.direction === "to_work")!;
@@ -375,6 +394,14 @@ async function main() {
     }
   }
 
+  /** The vehicle a passenger takes at a time: their pick where there are two, otherwise the only one. */
+  const vehicleOf = (rc: RouteCtx, slot: number, p: PassengerCtx): number =>
+    rc.schedules.filter((x) => x.slot === slot).length > 1 ? p.vehicleNo : 1;
+  const scheduleFor = (rc: RouteCtx, p: PassengerCtx) => {
+    const slot = rc.direction === "to_work" ? p.morningIdx : p.eveningIdx;
+    return rc.schedules.find((x) => x.slot === slot && x.vehicleNo === vehicleOf(rc, slot, p))!;
+  };
+
   // trips: past 14 days (completed with facts), today + 7 days (planned)
   let tripCount = 0;
   for (let dayOffset = -14; dayOffset <= 7; dayOffset++) {
@@ -383,7 +410,7 @@ async function main() {
     if (weekday > 5) continue;
     const isPast = dayOffset < 0;
     for (const rc of routeCtxs) {
-      for (const [schedIdx, sched] of rc.schedules.entries()) {
+      for (const sched of rc.schedules) {
         const departureMin = parseTimeToMinutes(sched.departureTime);
         const tripStartAt = localDateTime(date, departureMin);
         const isFuture = !isPast && tripStartAt.getTime() > now.instant.getTime();
@@ -394,8 +421,9 @@ async function main() {
             routeId: rc.routeId,
             routeVersionId: rc.versionId,
             scheduleId: sched.id,
-            vehicleId: rc.vehicle.id,
-            driverId: rc.driverId,
+            vehicleNo: sched.vehicleNo,
+            vehicleId: sched.vehicle.id,
+            driverId: sched.driverId,
             date,
             startTime: sched.departureTime,
             status,
@@ -410,7 +438,8 @@ async function main() {
         const riders = passengerCtxs.filter((p) => {
           if (p.line !== rc.line) return false;
           const idx = rc.direction === "to_work" ? p.morningIdx : p.eveningIdx;
-          if (idx !== schedIdx) return false;
+          if (idx !== sched.slot) return false;
+          if (vehicleOf(rc, sched.slot, p) !== sched.vehicleNo) return false;
           // Friday slightly lower attendance
           return chance(p.attendance * (weekday === 5 ? 0.85 : 1));
         });
@@ -478,7 +507,7 @@ async function main() {
         .filter((rc) => rc.line === p.line)
         .map((rc) => ({
           passengerId: p.userId,
-          scheduleId: rc.schedules[rc.direction === "to_work" ? p.morningIdx : p.eveningIdx]!.id,
+          scheduleId: scheduleFor(rc, p).id,
           stopId: rc.direction === "to_work" ? stopId.get(p.homeStopKey)! : stopId.get("office")!,
           createdBy: p.userId,
         })),

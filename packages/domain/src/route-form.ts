@@ -9,6 +9,7 @@
  */
 
 import { plural } from "./plural";
+import { MAX_VEHICLES_PER_DEPARTURE } from "./schedule";
 
 /** Highest number of points the road router accepts in one request. */
 export const MAX_ROUTE_POINTS = 25;
@@ -24,6 +25,14 @@ export interface RouteFormPoint {
   offsetMin: number;
 }
 
+/** One departure time and how many vehicles leave at it. */
+export interface RouteDeparture {
+  /** "HH:MM" */
+  time: string;
+  /** 1 for an ordinary departure; 2 or more when several vehicles leave together */
+  vehicles: number;
+}
+
 export interface RouteFormInput {
   name: string;
   direction: "to_work" | "from_work";
@@ -32,7 +41,7 @@ export interface RouteFormInput {
   /** null means "not set": the trip then falls back to the vehicle capacity */
   plannedCapacity: number | null;
   stops: readonly RouteFormPoint[];
-  departures: readonly string[];
+  departures: readonly RouteDeparture[];
   daysOfWeek: readonly number[];
 }
 
@@ -106,9 +115,12 @@ export function validateRouteForm(input: RouteFormInput): RouteFormProblems {
 
   // ------------------------------------------------------------- departures
   const times = new Set<string>();
-  input.departures.forEach((t, i) => {
+  input.departures.forEach(({ time: t, vehicles }, i) => {
     if (!isValidTime(t)) errors[`departures.${i}`] = "Время в формате ЧЧ:ММ";
     else if (times.has(t)) errors[`departures.${i}`] = `Отправление ${t} уже добавлено`;
+    else if (!Number.isInteger(vehicles) || vehicles < 1 || vehicles > MAX_VEHICLES_PER_DEPARTURE) {
+      errors[`departures.${i}`] = `Машин на одно отправление — от 1 до ${MAX_VEHICLES_PER_DEPARTURE}`;
+    }
     times.add(t);
   });
 
@@ -167,7 +179,10 @@ export function normalizeRouteForm(input: RouteFormInput): string {
   const stops = input.stops
     .map((s) => `${s.stopId ?? `new:${s.lat.toFixed(5)},${s.lng.toFixed(5)}`}@${s.offsetMin}`)
     .join(">");
-  const departures = [...input.departures].sort().join(",");
+  const departures = input.departures
+    .map((d) => `${d.time}x${d.vehicles}`)
+    .sort()
+    .join(",");
   const days = [...input.daysOfWeek].sort((a, b) => a - b).join(",");
   return [
     input.name.trim(),

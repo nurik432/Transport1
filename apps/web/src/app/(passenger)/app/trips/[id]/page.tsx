@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { formatLocalDate, freeSeats } from "@transport/domain";
 import { requireRole } from "@/lib/auth";
 import { getTrip } from "@/lib/queries";
+import { tripLabel } from "@/lib/trip-vehicle";
 import { tripSubscription } from "@/lib/subscriptions";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { MobileHeader } from "@/components/mobile-shell";
@@ -34,7 +35,7 @@ export default async function TripPage({ params }: { params: Promise<{ id: strin
     <>
       {trip.status === "in_progress" ? <AutoRefresh seconds={60} /> : null}
       <MobileHeader
-        title={`Маршрут ${trip.route.name} · рейс ${trip.startTime}`}
+        title={`Маршрут ${trip.route.name} · рейс ${tripLabel(trip)}`}
         subtitle={`${trip.route.description ?? "Маршрут"} · ${formatLocalDate(trip.date)}`}
         back={`/app/routes/${trip.route.id}`}
       />

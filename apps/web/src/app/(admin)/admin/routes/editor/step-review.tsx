@@ -1,6 +1,6 @@
 "use client";
 
-import { formatMinutes, parseTimeToMinutes } from "@transport/domain";
+import { formatMinutes, parseTimeToMinutes, plural } from "@transport/domain";
 import { MapPanel } from "@/components/map";
 import { Panel, RouteBadge } from "@/components/ui";
 import { WEEKDAYS, formatKm } from "./types";
@@ -16,7 +16,10 @@ import type { RoutePath } from "./use-route-path";
  */
 export function StepReview({ editor, path }: { editor: RouteEditor; path: RoutePath }) {
   const { value } = editor;
-  const first = [...value.departures].sort()[0];
+  const sorted = [...value.departures].sort((a, b) => a.time.localeCompare(b.time));
+  const first = sorted[0]?.time;
+  const withVehicles = (d: { time: string; vehicles: number }) =>
+    d.vehicles > 1 ? `${d.time} (${d.vehicles} ${plural(d.vehicles, ["машина", "машины", "машин"])})` : d.time;
   const days = WEEKDAYS.filter((d) => value.daysOfWeek.includes(d.value))
     .map((d) => d.label)
     .join(", ");
@@ -67,9 +70,15 @@ export function StepReview({ editor, path }: { editor: RouteEditor; path: RouteP
               </li>
             ))}
           </ol>
-          {value.departures.length > 1 ? (
+          {sorted.length > 1 ? (
             <p className="mt-2 text-xs text-muted-foreground">
-              Остальные отправления: {[...value.departures].sort().slice(1).join(", ")} — те же смещения.
+              Остальные отправления: {sorted.slice(1).map(withVehicles).join(", ")} — те же смещения.
+            </p>
+          ) : null}
+          {sorted.some((d) => d.vehicles > 1) ? (
+            <p className="mt-1 text-xs text-muted-foreground">
+              Несколько машин на одно время: {sorted.filter((d) => d.vehicles > 1).map(withVehicles).join(", ")}. Каждая —
+              отдельный рейс со своим водителем, пассажир выбирает машину сам.
             </p>
           ) : null}
         </div>

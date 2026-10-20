@@ -1,13 +1,19 @@
 "use client";
 
 import { useState } from "react";
+import { MAX_VEHICLES_PER_DEPARTURE, plural, type RouteDeparture } from "@transport/domain";
 import { Button, Field, cx, inputClass } from "@/components/ui";
 import { WEEKDAYS } from "./types";
 import type { RouteEditor } from "./use-route-editor";
 
+const vehiclesLabel = (n: number) => `${n} ${plural(n, ["машина", "машины", "машин"])}`;
+
 /**
  * When the route runs. A departure with no weekday never becomes a trip, which
  * is why the weekdays are part of this step and not an afterthought.
+ *
+ * A busy time can take several vehicles. Each is its own trip with its own
+ * driver; passengers pick which one they ride.
  */
 export function StepSchedule({
   editor,
@@ -26,50 +32,92 @@ export function StepSchedule({
       setError("Укажите время в формате ЧЧ:ММ");
       return;
     }
-    if (value.departures.includes(newDeparture)) {
+    if (value.departures.some((d) => d.time === newDeparture)) {
       setError(`Отправление ${newDeparture} уже добавлено`);
       return;
     }
-    editor.set("departures", [...value.departures, newDeparture].sort());
+    editor.set(
+      "departures",
+      [...value.departures, { time: newDeparture, vehicles: 1 }].sort((a, b) => a.time.localeCompare(b.time)),
+    );
     setNewDeparture("");
     setError(null);
   }
 
+  function setVehicles(time: string, vehicles: number) {
+    editor.set(
+      "departures",
+      value.departures.map((d) => (d.time === time ? { ...d, vehicles } : d)),
+    );
+  }
+
+  const sorted: RouteDeparture[] = [...value.departures].sort((a, b) => a.time.localeCompare(b.time));
+
   return (
     <div className="flex flex-col gap-4">
-      {suggestedDeparture && !value.departures.includes(suggestedDeparture) ? (
+      {suggestedDeparture && !value.departures.some((d) => d.time === suggestedDeparture) ? (
         <p className="rounded-lg bg-primary-soft px-3 py-2 text-sm text-primary">
           Аналитика предлагает добавить отправление {suggestedDeparture}: время уже подставлено ниже, нажмите
           «Добавить время», а затем сохраните маршрут.
         </p>
       ) : null}
 
-      <div className="flex flex-wrap items-center gap-2">
-        {value.departures.length === 0 ? (
+      <div className="flex flex-col gap-2">
+        {sorted.length === 0 ? (
           <span className="text-sm text-muted-foreground">Отправления не заданы</span>
         ) : (
-          [...value.departures].sort().map((t) => (
-            <span
-              key={t}
-              className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-border bg-muted px-3 text-sm font-semibold tabular-nums"
-            >
-              {t}
-              <button
-                type="button"
-                aria-label={`Убрать отправление ${t}`}
-                onClick={() =>
-                  editor.set(
-                    "departures",
-                    value.departures.filter((d) => d !== t),
-                  )
-                }
-                className="cursor-pointer text-muted-foreground hover:text-danger"
+          <ul className="flex flex-col gap-2">
+            {sorted.map(({ time: t, vehicles }) => (
+              <li
+                key={t}
+                className="flex min-h-12 flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-border bg-muted px-3 py-1.5"
               >
-                ×
-              </button>
-            </span>
-          ))
+                <span className="w-14 text-base font-bold tabular-nums">{t}</span>
+                <span className="flex items-center gap-1" role="group" aria-label={`Машин в ${t}`}>
+                  <button
+                    type="button"
+                    aria-label={`Меньше машин в ${t}`}
+                    disabled={vehicles <= 1}
+                    onClick={() => setVehicles(t, vehicles - 1)}
+                    className="flex size-9 cursor-pointer items-center justify-center rounded-lg border border-border bg-card text-lg font-semibold hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    −
+                  </button>
+                  <span className="min-w-20 text-center text-sm font-semibold" aria-live="polite">
+                    {vehiclesLabel(vehicles)}
+                  </span>
+                  <button
+                    type="button"
+                    aria-label={`Больше машин в ${t}`}
+                    disabled={vehicles >= MAX_VEHICLES_PER_DEPARTURE}
+                    onClick={() => setVehicles(t, vehicles + 1)}
+                    className="flex size-9 cursor-pointer items-center justify-center rounded-lg border border-border bg-card text-lg font-semibold hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    +
+                  </button>
+                </span>
+                <button
+                  type="button"
+                  aria-label={`Убрать отправление ${t}`}
+                  onClick={() =>
+                    editor.set(
+                      "departures",
+                      value.departures.filter((d) => d.time !== t),
+                    )
+                  }
+                  className="ml-auto min-h-9 cursor-pointer px-2 text-sm text-muted-foreground hover:text-danger"
+                >
+                  Убрать
+                </button>
+              </li>
+            ))}
+          </ul>
         )}
+        {sorted.some((d) => d.vehicles > 1) ? (
+          <p className="text-xs text-muted-foreground">
+            Каждая машина — отдельный рейс: транспорт и водителя назначьте в «Рейсах». Пассажир выбирает машину сам.
+          </p>
+        ) : null}
       </div>
 
       <div className="flex flex-wrap items-end gap-2">

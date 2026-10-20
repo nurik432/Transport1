@@ -21,6 +21,7 @@ import {
 } from "@transport/domain";
 import { db, schema } from "./db";
 import { getTripLoadRecords, listRoutes } from "./queries";
+import { tripVehiclesAtTime } from "./trip-vehicle";
 
 const { trips, routes, vehicles, passengers, users, stops } = schema;
 
@@ -68,6 +69,8 @@ export async function buildForecast(horizonDays = HORIZON_DAYS): Promise<Forecas
         routeId: trips.routeId,
         date: trips.date,
         startTime: trips.startTime,
+        scheduleId: trips.scheduleId,
+        vehiclesAtTime: tripVehiclesAtTime,
         capacity: vehicles.capacity,
         plannedCapacity: routes.plannedCapacity,
       })
@@ -96,6 +99,8 @@ export async function buildForecast(horizonDays = HORIZON_DAYS): Promise<Forecas
             tripId: t.tripId,
             date: t.date,
             startTime: t.startTime.slice(0, 5),
+            scheduleId: t.scheduleId,
+            vehiclesAtTime: t.vehiclesAtTime,
             capacity: t.capacity ?? t.plannedCapacity ?? null,
           },
           routeHistory,
@@ -131,6 +136,8 @@ export async function forecastByTrip(date: string): Promise<Map<string, TripFore
         routeId: trips.routeId,
         date: trips.date,
         startTime: trips.startTime,
+        scheduleId: trips.scheduleId,
+        vehiclesAtTime: tripVehiclesAtTime,
         capacity: vehicles.capacity,
         plannedCapacity: routes.plannedCapacity,
       })
@@ -156,6 +163,8 @@ export async function forecastByTrip(date: string): Promise<Map<string, TripFore
           tripId: t.tripId,
           date: t.date,
           startTime: t.startTime.slice(0, 5),
+          scheduleId: t.scheduleId,
+          vehiclesAtTime: t.vehiclesAtTime,
           capacity: t.capacity ?? t.plannedCapacity ?? null,
         },
         byRoute.get(t.routeId) ?? [],

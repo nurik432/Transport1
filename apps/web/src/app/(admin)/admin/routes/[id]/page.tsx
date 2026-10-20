@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { requireRole } from "@/lib/auth";
-import { localNow } from "@transport/domain";
+import { groupSchedulesByTime, localNow } from "@transport/domain";
 import { getRoute, getRouteReadinessFacts, getRouteVersions, listStops } from "@/lib/queries";
 import { AdminMain, PageHeader } from "@/components/admin-ui";
 import { LinkButton } from "@/components/ui";
@@ -69,7 +69,7 @@ export default async function EditRoutePage({
             lng: s.lng,
             offsetMin: s.offsetMin,
           })),
-          departures: route.schedules.map((s) => s.departureTime),
+          departures: groupSchedulesByTime(route.schedules).map((g) => ({ time: g.time, vehicles: g.vehicles })),
           daysOfWeek: route.schedules[0]?.daysOfWeek ?? [1, 2, 3, 4, 5],
         }}
       />

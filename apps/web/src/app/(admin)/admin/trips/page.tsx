@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { and, asc, eq, sql } from "drizzle-orm";
-import { addDays, formatLocalDate, localNow } from "@transport/domain";
+import { addDays, departureLabel, formatLocalDate, localNow } from "@transport/domain";
 import { requireRole } from "@/lib/auth";
 import { db, schema } from "@/lib/db";
 import { AdminMain, Cell, FilterChips, PageHeader, Row, Table, type FilterChip } from "@/components/admin-ui";
 import { MiniBar, Pill, RouteBadge } from "@/components/ui";
 import { DIRECTION_SHORT } from "@/lib/analytics";
 import { forecastByTrip } from "@/lib/planning";
+import { tripVehicleNo, tripVehiclesAtTime } from "@/lib/trip-vehicle";
 import { GenerateTripsForm, TripAssignment, TripRowActions } from "./trips-editor";
 
 const STATUS: Record<string, { label: string; tone: "neutral" | "primary" | "ok" | "warn" }> = {
@@ -43,6 +44,8 @@ export default async function TripsPage({
       .select({
         id: schema.trips.id,
         startTime: schema.trips.startTime,
+        vehicleNo: tripVehicleNo,
+        vehiclesAtTime: tripVehiclesAtTime,
         status: schema.trips.status,
         routeId: schema.routes.id,
         routeName: schema.routes.name,
@@ -61,7 +64,7 @@ export default async function TripsPage({
       .leftJoin(schema.vehicles, eq(schema.vehicles.id, schema.trips.vehicleId))
       .leftJoin(schema.users, eq(schema.users.id, schema.trips.driverId))
       .where(eq(schema.trips.date, day))
-      .orderBy(asc(schema.trips.startTime), asc(schema.routes.name)),
+      .orderBy(asc(schema.trips.startTime), asc(schema.routes.name), asc(tripVehicleNo)),
     db
       .select({
         id: schema.vehicles.id,
@@ -180,7 +183,14 @@ export default async function TripsPage({
             const overflow = forecast && t.capacity ? forecast.expected > t.capacity : false;
             return (
               <Row key={t.id} tone={unassigned ? "attention" : "plain"}>
-                <Cell className="w-20 font-bold tabular-nums">{t.startTime.slice(0, 5)}</Cell>
+                <Cell className="w-24">
+                  <span className="block font-bold tabular-nums">{t.startTime.slice(0, 5)}</span>
+                  {t.vehiclesAtTime > 1 ? (
+                    <span className="block text-xs font-medium text-muted-foreground">
+                      машина {t.vehicleNo} из {t.vehiclesAtTime}
+                    </span>
+                  ) : null}
+                </Cell>
                 <Cell className="w-64 max-w-64">
                   <span className="flex min-w-0 items-center gap-2">
                     <RouteBadge name={t.routeName} color={t.routeColor} />
@@ -233,7 +243,7 @@ export default async function TripsPage({
                 </Cell>
                 <Cell className="w-28">
                   {t.status === "planned" || t.status === "in_progress" ? (
-                    <TripRowActions tripId={t.id} time={t.startTime.slice(0, 5)} routeName={t.routeName} />
+                    <TripRowActions tripId={t.id} time={departureLabel(t.startTime, t.vehicleNo, t.vehiclesAtTime)} routeName={t.routeName} />
                   ) : null}
                 </Cell>
               </Row>

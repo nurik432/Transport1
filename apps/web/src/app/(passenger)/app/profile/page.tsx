@@ -89,9 +89,9 @@ export default async function ProfilePage() {
                 {subscriptions.map((s) => (
                   <li key={s.id} className="flex min-h-16 items-center gap-3 px-4 py-2.5">
                     <RouteBadge name={s.routeName} color={s.routeColor} size="md" />
-                    <Link href={`/app/routes/${s.routeId}?dep=${s.departureTime}`} className="flex min-w-0 flex-1 flex-col">
+                    <Link href={`/app/routes/${s.routeId}?dep=${s.scheduleId}`} className="flex min-w-0 flex-1 flex-col">
                       <span className="truncate text-[15px] font-semibold">
-                        {s.direction === "to_work" ? "На работу" : "Домой"} в {s.departureTime}
+                        {s.direction === "to_work" ? "На работу" : "Домой"} в {s.label}
                       </span>
                       <span className="truncate text-sm text-muted-foreground">Посадка: {s.stopName}</span>
                     </Link>

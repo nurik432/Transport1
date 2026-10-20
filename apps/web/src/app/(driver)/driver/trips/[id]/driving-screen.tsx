@@ -88,6 +88,7 @@ export function DrivingScreen({
   tripId: string;
   routeName: string;
   routeColor: string;
+  /** "07:30", or "07:30 · машина 2" when several vehicles leave together */
   startTime: string;
   capacity: number | null;
   path: [number, number][] | null;

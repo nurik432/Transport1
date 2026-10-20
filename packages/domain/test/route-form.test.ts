@@ -27,7 +27,7 @@ function form(over: Partial<RouteFormInput> = {}): RouteFormInput {
     color: "#2563eb",
     plannedCapacity: 30,
     stops: [point(), point({ stopId: "s2", name: "Офис", offsetMin: 18 })],
-    departures: ["07:00"],
+    departures: [{ time: "07:00", vehicles: 1 }],
     daysOfWeek: [1, 2, 3, 4, 5],
     ...over,
   };
@@ -104,9 +104,12 @@ describe("validateRouteForm", () => {
   });
 
   it("checks the departure format and catches duplicates", () => {
-    expect(validateRouteForm(form({ departures: ["7:00"] })).errors["departures.0"]).toBe("Время в формате ЧЧ:ММ");
-    expect(validateRouteForm(form({ departures: ["25:00"] })).errors["departures.0"]).toBe("Время в формате ЧЧ:ММ");
-    expect(validateRouteForm(form({ departures: ["07:00", "07:00"] })).errors["departures.1"]).toContain("уже добавлено");
+    expect(validateRouteForm(form({ departures: [{ time: "7:00", vehicles: 1 }] })).errors["departures.0"]).toBe("Время в формате ЧЧ:ММ");
+    expect(validateRouteForm(form({ departures: [{ time: "25:00", vehicles: 1 }] })).errors["departures.0"]).toBe("Время в формате ЧЧ:ММ");
+    expect(validateRouteForm(form({ departures: [{ time: "07:00", vehicles: 1 }, { time: "07:00", vehicles: 1 }] })).errors["departures.1"]).toContain("уже добавлено");
+    expect(validateRouteForm(form({ departures: [{ time: "07:00", vehicles: 0 }] })).errors["departures.0"]).toContain("Машин");
+    expect(validateRouteForm(form({ departures: [{ time: "07:00", vehicles: 6 }] })).errors["departures.0"]).toContain("Машин");
+    expect(validateRouteForm(form({ departures: [{ time: "07:00", vehicles: 3 }] })).errors).toEqual({});
   });
 });
 
@@ -147,9 +150,13 @@ describe("firstIncompleteStep", () => {
 
 describe("normalizeRouteForm", () => {
   it("ignores the order departures were typed in", () => {
-    expect(normalizeRouteForm(form({ departures: ["08:30", "07:00"] }))).toBe(
-      normalizeRouteForm(form({ departures: ["07:00", "08:30"] })),
+    expect(normalizeRouteForm(form({ departures: [{ time: "08:30", vehicles: 1 }, { time: "07:00", vehicles: 1 }] }))).toBe(
+      normalizeRouteForm(form({ departures: [{ time: "07:00", vehicles: 1 }, { time: "08:30", vehicles: 1 }] })),
     );
+  });
+
+  it("notices a change in the number of vehicles", () => {
+    expect(normalizeRouteForm(form({ departures: [{ time: "07:00", vehicles: 2 }] }))).not.toBe(normalizeRouteForm(form()));
   });
 
   it("ignores the order weekdays were toggled in", () => {

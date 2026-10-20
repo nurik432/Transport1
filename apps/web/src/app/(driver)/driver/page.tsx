@@ -22,13 +22,21 @@ function untilLabel(startTime: string, nowMinutes: number): string | null {
   return `через ${durationLabel(left)}`;
 }
 
+/** "машина 2 из 2" when other vehicles leave at the same time; nothing otherwise. */
+function vehicleOf(trip: Pick<Trip, "vehicleNo" | "vehiclesAtTime">): string | null {
+  return trip.vehiclesAtTime > 1 ? `машина ${trip.vehicleNo} из ${trip.vehiclesAtTime}` : null;
+}
+
 /** Route number and where it goes, the two things that identify a trip. */
 function TripLine({ trip }: { trip: Trip }) {
   return (
     <>
       <RouteBadge name={trip.routeName} color={trip.routeColor} size="md" className="h-8 min-w-9 text-base" />
       <span className="flex min-w-0 flex-1 flex-col">
-        <span className="text-[17px] font-bold tabular-nums">{trip.startTime}</span>
+        <span className="text-[17px] font-bold tabular-nums">
+          {trip.startTime}
+          {vehicleOf(trip) ? <span className="ml-2 text-[13px] font-semibold text-muted-foreground">{vehicleOf(trip)}</span> : null}
+        </span>
         {/* The count leads the line: on a long route name truncation must eat
             the description, never the number the driver came for. */}
         <span className="truncate text-[13px] text-muted-foreground">
@@ -108,7 +116,12 @@ export default async function DriverToday() {
                   {focus.startTime}
                 </span>
                 <span className="truncate text-sm text-muted-foreground">
-                  {running ? focus.description : [untilLabel(focus.startTime, now.minutes), focus.description].filter(Boolean).join(" · ")}
+                  {(running
+                    ? [vehicleOf(focus), focus.description]
+                    : [untilLabel(focus.startTime, now.minutes), vehicleOf(focus), focus.description]
+                  )
+                    .filter(Boolean)
+                    .join(" · ")}
                 </span>
               </div>
             </div>

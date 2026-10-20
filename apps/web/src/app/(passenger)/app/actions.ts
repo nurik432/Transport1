@@ -6,6 +6,7 @@ import { z } from "zod";
 import { db, schema } from "@/lib/db";
 import { changeOwnPassword, requireRole } from "@/lib/auth";
 import { markAllRead } from "@/lib/queries";
+import { dropSiblingBookings } from "@transport/db/subscriptions";
 import {
   attachPassenger,
   clearRidePause,
@@ -57,13 +58,17 @@ export async function bookTrip(tripId: string, stopId: string): Promise<BookingR
     .limit(1);
   if (!profile[0]) await db.insert(schema.passengers).values({ userId: user.id }).onConflictDoNothing();
 
-  await db
-    .insert(schema.passengerTrips)
-    .values({ passengerId: user.id, tripId, stopId, status: "planned" })
-    .onConflictDoUpdate({
-      target: [schema.passengerTrips.passengerId, schema.passengerTrips.tripId],
-      set: { stopId, status: "planned" },
-    });
+  await db.transaction(async (tx) => {
+    await tx
+      .insert(schema.passengerTrips)
+      .values({ passengerId: user.id, tripId, stopId, status: "planned" })
+      .onConflictDoUpdate({
+        target: [schema.passengerTrips.passengerId, schema.passengerTrips.tripId],
+        set: { stopId, status: "planned" },
+      });
+    // One seat per departure: another vehicle leaving at the same time gives it up.
+    await dropSiblingBookings(tx, { passengerId: user.id, tripId });
+  });
 
   revalidatePath("/app");
   revalidatePath(`/app/trips/${tripId}`);

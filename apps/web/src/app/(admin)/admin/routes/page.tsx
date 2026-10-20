@@ -1,3 +1,4 @@
+import { vehiclesPerTime } from "@transport/domain";
 import Link from "next/link";
 import { requireRole } from "@/lib/auth";
 import { listRoutes } from "@/lib/queries";
@@ -49,7 +50,8 @@ export default async function RoutesPage() {
               <Cell className="tabular-nums">{r.stops.length}</Cell>
               <Cell className="tabular-nums">
                 {r.schedules.length > 0 ? (
-                  r.schedules.length
+                  // Departure times; a second bus at the same time is not a second departure.
+                  vehiclesPerTime(r.schedules).size
                 ) : (
                   <Pill tone="warn">нет расписания</Pill>
                 )}

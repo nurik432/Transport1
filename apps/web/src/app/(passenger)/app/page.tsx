@@ -95,7 +95,7 @@ export default async function PassengerHome({
   const mine = bookedArrivals.find((a) => !a.eta.passed);
   const first = mine ?? arrivals[0];
   const mineIsStanding =
-    mine != null && standing != null && mine.routeId === standing.routeId && mine.startTime === standing.departureTime;
+    mine != null && standing != null && mine.scheduleId === standing.scheduleId;
   const pause = standing ? pauseLabel({ from: profile?.pauseFrom ?? null, to: profile?.pauseTo ?? null }, now.date) : null;
   const heroStopId = first?.stopId ?? near[0]?.stop.id;
   const heroStop = near.find((n) => n.stop.id === heroStopId);

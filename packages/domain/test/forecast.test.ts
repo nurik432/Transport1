@@ -118,3 +118,47 @@ describe("peakDepartures", () => {
     expect(peakDepartures(fine)).toEqual([]);
   });
 });
+
+describe("forecast with several vehicles at one time", () => {
+  const withSchedule = (r: TripLoadRecord, scheduleId: string): TripLoadRecord => ({
+    ...r,
+    tripId: `${r.tripId}-${scheduleId}`,
+    scheduleId,
+  });
+
+  it("uses the vehicle's own history when it has some", () => {
+    const own = [
+      withSchedule(rec("2026-09-07", "07:30", 12), "v2"),
+      withSchedule(rec("2026-09-14", "07:30", 12), "v2"),
+      withSchedule(rec("2026-09-21", "07:30", 12), "v2"),
+    ];
+    const f = forecastDemand([...history, ...own], {
+      date: "2026-09-28",
+      startTime: "07:30",
+      scheduleId: "v2",
+      vehiclesAtTime: 2,
+    });
+    expect(f.basis).toBe("same_time_weekday");
+    expect(f.expected).toBe(12);
+  });
+
+  it("splits the time's history between vehicles when the vehicle is new", () => {
+    const f = forecastDemand(history, {
+      date: "2026-09-28",
+      startTime: "07:30",
+      scheduleId: "new",
+      vehiclesAtTime: 2,
+    });
+    expect(f.expected).toBeGreaterThanOrEqual(15);
+    expect(f.expected).toBeLessThanOrEqual(16);
+    expect(f.high).toBe(16);
+  });
+
+  it("adds up the seats of vehicles leaving together", () => {
+    const peaks = peakDepartures([
+      forecastTrip({ tripId: "a", date: "2026-09-28", startTime: "07:30", capacity: 20 }, history),
+      forecastTrip({ tripId: "b", date: "2026-09-28", startTime: "07:30", capacity: 20 }, history),
+    ]);
+    expect(peaks[0]?.capacity).toBe(40);
+  });
+});
