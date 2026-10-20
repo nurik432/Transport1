@@ -12,8 +12,6 @@ const STATUS_OPTIONS = [
 
 const FIELDS = (defaultRadiusM: number, defaults?: { name: string; lat: number; lng: number; radiusM: number | null; status: string }) => [
   { name: "name", label: "Название", required: true, placeholder: "Завод, проходная", defaultValue: defaults?.name, wide: true },
-  { name: "lat", label: "Широта", type: "number" as const, required: true, placeholder: "40.26900", defaultValue: defaults?.lat },
-  { name: "lng", label: "Долгота", type: "number" as const, required: true, placeholder: "69.66500", defaultValue: defaults?.lng },
   {
     name: "radiusM",
     label: "Радиус, м",
@@ -29,6 +27,16 @@ const FIELDS = (defaultRadiusM: number, defaults?: { name: string; lat: number; 
     options: STATUS_OPTIONS,
     required: true,
     defaultValue: defaults?.status ?? "active",
+  },
+  {
+    name: "point",
+    label: "Место на карте",
+    type: "point" as const,
+    required: true,
+    defaultPoint: defaults ? { lat: defaults.lat, lng: defaults.lng } : null,
+    radiusFrom: "radiusM",
+    radiusFallback: defaultRadiusM,
+    hint: "Круг — зона, в которой отметка считается подтверждённой",
   },
 ];
 
@@ -94,7 +102,7 @@ export function PointRowActions({
   }
 
   return (
-    <div className="min-w-80 py-2">
+    <div className="min-w-[28rem] py-2">
       <EntityForm
         compact
         submitLabel="Сохранить"
