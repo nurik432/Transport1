@@ -48,7 +48,8 @@ function locate(): Promise<{ lat: number; lng: number; accuracyM: number | null 
     navigator.geolocation.getCurrentPosition(
       (pos) => resolve({ lat: pos.coords.latitude, lng: pos.coords.longitude, accuracyM: pos.coords.accuracy ?? null }),
       () => resolve(null),
-      { enableHighAccuracy: true, timeout: 8000, maximumAge: 30_000 },
+      // a fresh fix only: a cached one may come from before the driver reached the point
+      { enableHighAccuracy: true, timeout: 10_000, maximumAge: 0 },
     );
   });
 }

@@ -9,6 +9,7 @@ import {
   formatLocalTime,
   localNow,
   monthDates,
+  scanGeoRejection,
   summarizeMonth,
   windowsLabel,
   type AttendanceSettings,
@@ -78,8 +79,9 @@ export type ScanResult =
 
 /**
  * One scan of a QR by the signed-in driver. Server time decides the date and the
- * window; the client only contributes its position. Facts are always written,
- * including repeats and off-window scans, so a dispute can be settled later.
+ * window; the client only contributes its position. A scan from outside the
+ * point's zone is refused and not written. Accepted scans are always written,
+ * including repeats and off-window ones, so a dispute can be settled later.
  */
 export async function recordScan(args: { userId: string; token: string; position: ScanPosition | null }): Promise<ScanResult> {
   const point = await findPointByToken(args.token);
@@ -87,8 +89,11 @@ export async function recordScan(args: { userId: string; token: string; position
   if (point.status !== "active") return { ok: false, error: "Точка отключена, обратитесь к диспетчеру." };
 
   const [cfg, now] = [await getAttendanceSettings(), localNow()];
+  const geoCheck = checkScanGeo(point, args.position, cfg);
+  const rejection = scanGeoRejection(geoCheck, args.position);
+  if (rejection) return { ok: false, error: rejection };
+  const { geo } = geoCheck;
   const kind = classifyScanTime(now.minutes, cfg);
-  const { geo } = checkScanGeo(point, args.position, cfg);
 
   const existing =
     kind === "off_window"

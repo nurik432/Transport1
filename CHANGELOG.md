@@ -370,3 +370,16 @@ Mechanical record only - see git history for diffs and rationale._
 - 2026-10-22 08:49  Write  C:/Users/FID926~1/AppData/Local/Temp/claude/C--Users-fid926309449--claude-spares-spare-GZPnul/0a9b3cce-b58e-4afb-b1b3-e413e51c3a56/scratchpad/edit_ui1.py
 - 2026-10-22 08:49  Write  C:/Users/FID926~1/AppData/Local/Temp/claude/C--Users-fid926309449--claude-spares-spare-GZPnul/0a9b3cce-b58e-4afb-b1b3-e413e51c3a56/scratchpad/edit_ui2.py
 - 2026-10-22 08:50  Write  C:/Users/FID926~1/AppData/Local/Temp/claude/C--Users-fid926309449--claude-spares-spare-GZPnul/0a9b3cce-b58e-4afb-b1b3-e413e51c3a56/scratchpad/edit_ui3.py
+- 2026-10-22 12:38  Edit  C:/Users/fid926309449/transport1/packages/domain/test/attendance.test.ts
+- 2026-10-22 12:38  Edit  C:/Users/fid926309449/transport1/packages/domain/test/attendance.test.ts
+- 2026-10-22 12:39  Edit  C:/Users/fid926309449/transport1/packages/domain/src/attendance.ts
+- 2026-10-22 12:39  Edit  C:/Users/fid926309449/transport1/packages/domain/src/attendance.ts
+- 2026-10-22 12:39  Edit  C:/Users/fid926309449/transport1/packages/domain/src/attendance.ts
+- 2026-10-22 12:39  Edit  C:/Users/fid926309449/transport1/apps/web/src/lib/attendance.ts
+- 2026-10-22 12:39  Edit  C:/Users/fid926309449/transport1/apps/web/src/lib/attendance.ts
+- 2026-10-22 12:39  Edit  C:/Users/fid926309449/transport1/apps/web/src/lib/attendance.ts
+- 2026-10-22 12:39  Edit  C:/Users/fid926309449/transport1/apps/web/src/app/(checkin)/driver/checkin/checkin-screen.tsx
+- 2026-10-22 12:39  Edit  C:/Users/fid926309449/transport1/docs/01-analysis.md
+- 2026-10-22 12:39  Edit  C:/Users/fid926309449/transport1/docs/01-analysis.md
+- 2026-10-22 12:39  Edit  C:/Users/fid926309449/transport1/apps/web/src/app/(admin)/admin/settings/attendance-form.tsx
+- 2026-10-22 12:39  Edit  C:/Users/fid926309449/transport1/apps/web/src/lib/faq.ts
