@@ -1,12 +1,14 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, asc, desc, eq, gte, inArray, lte, ne, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lte, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import {
   addDays,
   canManageUser,
+  departureCrew,
   departureLabel,
+  localNow,
   MAX_VEHICLES_PER_DEPARTURE,
   validateRouteForm,
   vehiclesPerTime,
@@ -194,6 +196,16 @@ const routeSchema = z.object({
           .min(1)
           .max(MAX_VEHICLES_PER_DEPARTURE, `Машин на одно отправление — не больше ${MAX_VEHICLES_PER_DEPARTURE}`)
           .default(1),
+        /** one entry per vehicle, машина 1 first */
+        crew: z
+          .array(
+            z.object({
+              driverId: z.string().uuid().nullable().catch(null),
+              vehicleId: z.string().uuid().nullable().catch(null),
+            }),
+          )
+          .max(MAX_VEHICLES_PER_DEPARTURE)
+          .optional(),
       }),
     )
     .default([]),
@@ -222,16 +234,127 @@ function routeFormInput(data: z.infer<typeof routeSchema>): RouteFormInput {
   };
 }
 
+interface WantedSchedule {
+  time: string;
+  vehicleNo: number;
+  driverId: string | null;
+  vehicleId: string | null;
+}
+
 /**
  * The schedule rows a form asks for: one per vehicle of every departure,
  * keyed "HH:MM#vehicleNo" so stored rows and wanted rows compare directly.
  */
-function wantedSchedules(departures: readonly { time: string; vehicles: number }[]): Map<string, { time: string; vehicleNo: number }> {
-  const wanted = new Map<string, { time: string; vehicleNo: number }>();
+function wantedSchedules(departures: readonly RouteFormInput["departures"][number][]): Map<string, WantedSchedule> {
+  const wanted = new Map<string, WantedSchedule>();
   for (const d of departures) {
-    for (let n = 1; n <= d.vehicles; n++) wanted.set(`${d.time}#${n}`, { time: d.time, vehicleNo: n });
+    for (let n = 1; n <= d.vehicles; n++) {
+      wanted.set(`${d.time}#${n}`, { time: d.time, vehicleNo: n, ...departureCrew(d, n) });
+    }
   }
   return wanted;
+}
+
+/**
+ * A driver or vehicle the form puts on a departure that another route already
+ * runs them on at the same time and on a shared weekday.
+ */
+async function scheduleCrewClash(
+  routeId: string | undefined,
+  wanted: readonly WantedSchedule[],
+  daysOfWeek: readonly number[],
+): Promise<string | null> {
+  const driverIds = [...new Set(wanted.map((w) => w.driverId).filter((v): v is string => Boolean(v)))];
+  const vehicleIds = [...new Set(wanted.map((w) => w.vehicleId).filter((v): v is string => Boolean(v)))];
+  if (!driverIds.length && !vehicleIds.length) return null;
+
+  const crewFilter =
+    driverIds.length && vehicleIds.length
+      ? or(inArray(schema.routeSchedules.driverId, driverIds), inArray(schema.routeSchedules.vehicleId, vehicleIds))
+      : driverIds.length
+        ? inArray(schema.routeSchedules.driverId, driverIds)
+        : inArray(schema.routeSchedules.vehicleId, vehicleIds);
+  const others = await db
+    .select({
+      routeName: schema.routes.name,
+      departureTime: schema.routeSchedules.departureTime,
+      daysOfWeek: schema.routeSchedules.daysOfWeek,
+      driverId: schema.routeSchedules.driverId,
+      vehicleId: schema.routeSchedules.vehicleId,
+    })
+    .from(schema.routeSchedules)
+    .innerJoin(schema.routes, eq(schema.routes.id, schema.routeSchedules.routeId))
+    .where(
+      and(
+        routeId ? ne(schema.routeSchedules.routeId, routeId) : undefined,
+        ne(schema.routes.status, "inactive"),
+        eq(schema.routeSchedules.active, true),
+        crewFilter,
+      ),
+    );
+
+  for (const w of wanted) {
+    for (const o of others) {
+      if (o.departureTime.slice(0, 5) !== w.time) continue;
+      if (!o.daysOfWeek.some((d) => daysOfWeek.includes(d))) continue;
+      if (w.driverId && o.driverId === w.driverId) {
+        return `Водитель уже закреплён за маршрутом ${o.routeName} в ${w.time}`;
+      }
+      if (w.vehicleId && o.vehicleId === w.vehicleId) {
+        return `Транспорт уже закреплён за маршрутом ${o.routeName} в ${w.time}`;
+      }
+    }
+  }
+  return null;
+}
+
+type Crew = { driverId: string | null; vehicleId: string | null };
+
+/**
+ * Put a departure's crew on its planned trips from `fromDate` on. By default
+ * only the empty places are filled, so a trip crewed by hand keeps its crew;
+ * `overwrite` replaces it. A trip where that person or vehicle is already busy
+ * at the same moment is skipped either way.
+ */
+async function applyCrewToTrips(
+  scheduleId: string,
+  crew: Crew,
+  { fromDate = localNow().date, overwrite = false }: { fromDate?: string; overwrite?: boolean } = {},
+): Promise<{ updated: number; skipped: number }> {
+  const open = await db
+    .select({
+      id: schema.trips.id,
+      date: schema.trips.date,
+      startTime: schema.trips.startTime,
+      driverId: schema.trips.driverId,
+      vehicleId: schema.trips.vehicleId,
+    })
+    .from(schema.trips)
+    .where(and(eq(schema.trips.scheduleId, scheduleId), eq(schema.trips.status, "planned"), gte(schema.trips.date, fromDate)));
+
+  let updated = 0;
+  let skipped = 0;
+  for (const trip of open) {
+    const set: Partial<Crew> = {};
+    let clashed = false;
+    for (const [field, column] of [
+      ["driverId", schema.trips.driverId],
+      ["vehicleId", schema.trips.vehicleId],
+    ] as const) {
+      const value = crew[field];
+      if (trip[field] === value || (!overwrite && trip[field])) continue;
+      if (value && (await crewClash(trip, column, value))) {
+        clashed = true;
+        continue;
+      }
+      set[field] = value;
+    }
+    if (clashed) skipped++;
+    if (!Object.keys(set).length) continue;
+    await db.update(schema.trips).set(set).where(eq(schema.trips.id, trip.id));
+    updated++;
+  }
+  return { updated, skipped };
 }
 
 function scheduleKey(s: { departureTime: string; vehicleNo: number }): string {
@@ -346,6 +469,10 @@ export async function saveRoute(input: unknown): Promise<ActionResult> {
   const firstError = Object.values(errors)[0];
   if (firstError) return failFields(firstError, errors);
 
+  const wanted = wantedSchedules(data.departures);
+  const crewClashMessage = await scheduleCrewClash(data.id, [...wanted.values()], data.daysOfWeek);
+  if (crewClashMessage) return fail(crewClashMessage);
+
   const values = {
     name: data.name,
     description: data.description || null,
@@ -393,7 +520,6 @@ export async function saveRoute(input: unknown): Promise<ActionResult> {
     .where(eq(schema.routeSchedules.routeId, routeId));
   // One row per vehicle: a second bus at 07:30 is a row of its own, and taking
   // it away removes that row only.
-  const wanted = wantedSchedules(data.departures);
   const toDelete = existingSchedules.filter((s) => !wanted.has(scheduleKey(s)));
   const existingKeys = new Set(existingSchedules.map(scheduleKey));
   const toInsert = [...wanted.entries()].filter(([key]) => !existingKeys.has(key)).map(([, v]) => v);
@@ -416,6 +542,8 @@ export async function saveRoute(input: unknown): Promise<ActionResult> {
           routeId: routeId!,
           departureTime: `${t.time}:00`,
           vehicleNo: t.vehicleNo,
+          driverId: t.driverId,
+          vehicleId: t.vehicleId,
           daysOfWeek: data.daysOfWeek,
         })),
       );
@@ -424,6 +552,19 @@ export async function saveRoute(input: unknown): Promise<ActionResult> {
     .update(schema.routeSchedules)
     .set({ daysOfWeek: data.daysOfWeek })
     .where(eq(schema.routeSchedules.routeId, routeId));
+
+  // A changed crew is stored on the departure and handed to its trips that
+  // have nobody yet; trips crewed by hand stay as they are.
+  let crewedTrips = 0;
+  for (const s of existingSchedules) {
+    const w = wanted.get(scheduleKey(s));
+    if (!w || (w.driverId === s.driverId && w.vehicleId === s.vehicleId)) continue;
+    await db
+      .update(schema.routeSchedules)
+      .set({ driverId: w.driverId, vehicleId: w.vehicleId })
+      .where(eq(schema.routeSchedules.id, s.id));
+    crewedTrips += (await applyCrewToTrips(s.id, w)).updated;
+  }
 
   if (shapeChanged) {
     // A stop that left the route cannot be boarded at any more.
@@ -439,8 +580,9 @@ export async function saveRoute(input: unknown): Promise<ActionResult> {
 
   refreshAdmin("/admin/routes", `/admin/routes/${routeId}`, "/app", "/app/routes", "/admin/live");
 
+  const crewNote = crewedTrips ? `, водитель подставлен в рейсов: ${crewedTrips}` : "";
   if (!shapeChanged) {
-    return { ok: true, id: routeId, message: "Маршрут обновлён, форма маршрута не изменилась" };
+    return { ok: true, id: routeId, message: `Маршрут обновлён, форма маршрута не изменилась${crewNote}` };
   }
 
   const base = created ? "Маршрут создан" : `Маршрут обновлён, создана версия ${newVersion!.version}`;
@@ -448,7 +590,7 @@ export async function saveRoute(input: unknown): Promise<ActionResult> {
     geometry?.source === "road"
       ? `, путь по дорогам ${(geometry.distanceM / 1000).toFixed(1).replace(".", ",")} км`
       : ", путь по дорогам построить не удалось — показаны прямые линии";
-  return { ok: true, id: routeId, message: base + note };
+  return { ok: true, id: routeId, message: base + note + crewNote };
 }
 
 export interface SaveImpact {
@@ -951,10 +1093,11 @@ const generateSchema = z.object({
 
 /**
  * Create trips from active schedules for a date range: one trip per vehicle
- * departure per day. Vehicle and driver are copied from the most recent trip of
- * the same vehicle departure. A departure with no history yet borrows the
- * route's last crew only when it is the only vehicle at its time; with several
- * it stays unassigned, so one driver is never put on two buses at once.
+ * departure per day. The crew is the one set on the departure; whatever it
+ * leaves open is copied from the most recent trip of the same vehicle
+ * departure. A departure with no history yet borrows the route's last crew
+ * only when it is the only vehicle at its time; with several it stays
+ * unassigned, so one driver is never put on two buses at once.
  */
 export async function generateTrips(input: unknown): Promise<ActionResult> {
   await requireRole("admin");
@@ -972,6 +1115,8 @@ export async function generateTrips(input: unknown): Promise<ActionResult> {
       routeId: schema.routeSchedules.routeId,
       departureTime: schema.routeSchedules.departureTime,
       vehicleNo: schema.routeSchedules.vehicleNo,
+      driverId: schema.routeSchedules.driverId,
+      vehicleId: schema.routeSchedules.vehicleId,
       daysOfWeek: schema.routeSchedules.daysOfWeek,
       active: schema.routeSchedules.active,
     })
@@ -991,7 +1136,6 @@ export async function generateTrips(input: unknown): Promise<ActionResult> {
     .from(schema.trips)
     .where(inArray(schema.trips.routeId, routeIds))
     .orderBy(desc(schema.trips.date));
-  type Crew = { vehicleId: string | null; driverId: string | null };
   const bySchedule = new Map<string, Crew>();
   const byRoute = new Map<string, Crew>();
   for (const a of lastAssignments) {
@@ -1036,8 +1180,8 @@ export async function generateTrips(input: unknown): Promise<ActionResult> {
         routeId: s.routeId,
         scheduleId: s.scheduleId,
         vehicleNo: s.vehicleNo,
-        vehicleId: a?.vehicleId ?? null,
-        driverId: a?.driverId ?? null,
+        vehicleId: s.vehicleId ?? a?.vehicleId ?? null,
+        driverId: s.driverId ?? a?.driverId ?? null,
         date,
         startTime: s.departureTime,
         status: "planned",
@@ -1080,6 +1224,75 @@ async function crewClash(
     )
     .limit(1);
   return rows[0] ? { routeName: rows[0].routeName, startTime: rows[0].startTime.slice(0, 5) } : null;
+}
+
+/**
+ * Make this crew the departure's own and put it on this trip and every planned
+ * trip of the same departure after it, replacing whoever was there. Trips where
+ * the person or vehicle is busy on another bus at that moment are skipped and
+ * counted, so the administrator knows to look at them.
+ */
+export async function assignDeparture(tripId: string, vehicleId: string | null, driverId: string | null): Promise<ActionResult> {
+  await requireRole("admin");
+  const trip = (
+    await db
+      .select({ scheduleId: schema.trips.scheduleId, date: schema.trips.date })
+      .from(schema.trips)
+      .where(eq(schema.trips.id, tripId))
+      .limit(1)
+  )[0];
+  if (!trip) return fail("Рейс не найден");
+  if (!trip.scheduleId) return fail("Рейс не связан с расписанием — назначьте его отдельно");
+
+  const crew = { vehicleId: vehicleId || null, driverId: driverId || null };
+  const schedule = (
+    await db
+      .select({
+        routeId: schema.routeSchedules.routeId,
+        departureTime: schema.routeSchedules.departureTime,
+        vehicleNo: schema.routeSchedules.vehicleNo,
+        daysOfWeek: schema.routeSchedules.daysOfWeek,
+      })
+      .from(schema.routeSchedules)
+      .where(eq(schema.routeSchedules.id, trip.scheduleId))
+      .limit(1)
+  )[0];
+  if (!schedule) return fail("Отправление больше не в расписании — назначьте рейс отдельно");
+
+  const time = schedule.departureTime.slice(0, 5);
+  const clash = await scheduleCrewClash(
+    schedule.routeId,
+    [{ time, vehicleNo: schedule.vehicleNo, ...crew }],
+    schedule.daysOfWeek,
+  );
+  if (clash) return fail(clash);
+  const sameRoute = await db
+    .select({ id: schema.routeSchedules.id })
+    .from(schema.routeSchedules)
+    .where(
+      and(
+        eq(schema.routeSchedules.routeId, schedule.routeId),
+        eq(schema.routeSchedules.departureTime, schedule.departureTime),
+        ne(schema.routeSchedules.id, trip.scheduleId),
+        crew.driverId && crew.vehicleId
+          ? or(eq(schema.routeSchedules.driverId, crew.driverId), eq(schema.routeSchedules.vehicleId, crew.vehicleId))
+          : crew.driverId
+            ? eq(schema.routeSchedules.driverId, crew.driverId)
+            : crew.vehicleId
+              ? eq(schema.routeSchedules.vehicleId, crew.vehicleId)
+              : sql`false`,
+      ),
+    )
+    .limit(1);
+  if (sameRoute[0]) return fail(`В ${time} этот водитель или транспорт уже закреплён за другой машиной маршрута`);
+
+  await db.update(schema.routeSchedules).set(crew).where(eq(schema.routeSchedules.id, trip.scheduleId));
+  const { updated, skipped } = await applyCrewToTrips(trip.scheduleId, crew, { fromDate: trip.date, overwrite: true });
+  refreshAdmin("/admin/trips", "/admin/routes", `/admin/routes/${schedule.routeId}`, "/driver");
+
+  const parts = [`Закреплено за отправлением ${time}`, `обновлено рейсов: ${updated}`];
+  if (skipped) parts.push(`пропущено из-за занятости в это время: ${skipped}`);
+  return { ok: true, message: parts.join(", ") };
 }
 
 export async function assignTrip(tripId: string, vehicleId: string | null, driverId: string | null): Promise<ActionResult> {

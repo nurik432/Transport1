@@ -43,6 +43,7 @@ export default async function TripsPage({
     db
       .select({
         id: schema.trips.id,
+        scheduleId: schema.trips.scheduleId,
         startTime: schema.trips.startTime,
         vehicleNo: tripVehicleNo,
         vehiclesAtTime: tripVehiclesAtTime,
@@ -207,6 +208,11 @@ export default async function TripsPage({
                     vehicleLabel={t.vehicleNumber}
                     driverLabel={t.driverName}
                     disabled={t.status === "completed" || t.status === "cancelled"}
+                    departure={
+                      t.scheduleId && t.status === "planned"
+                        ? departureLabel(t.startTime, t.vehicleNo, t.vehiclesAtTime)
+                        : null
+                    }
                     vehicleOptions={vehicles.map((v) => ({
                       value: v.id,
                       label: `${v.number} · ${v.model}`,

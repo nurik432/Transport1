@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { requireRole } from "@/lib/auth";
 import { groupSchedulesByTime, localNow } from "@transport/domain";
-import { getRoute, getRouteReadinessFacts, getRouteVersions, listStops } from "@/lib/queries";
+import { getRoute, getRouteReadinessFacts, getRouteVersions, listCrewOptions, listStops } from "@/lib/queries";
 import { AdminMain, PageHeader } from "@/components/admin-ui";
 import { LinkButton } from "@/components/ui";
 import { RouteEditor } from "../editor/route-editor";
@@ -19,11 +19,12 @@ export default async function EditRoutePage({
   const suggestedDeparture = /^\d{2}:\d{2}$/.test(departure ?? "") ? departure! : null;
 
   const today = localNow().date;
-  const [route, allStops, versions, facts] = await Promise.all([
+  const [route, allStops, versions, facts, crewOptions] = await Promise.all([
     getRoute(id),
     listStops(),
     getRouteVersions(id),
     getRouteReadinessFacts(id, today),
+    listCrewOptions(),
   ]);
   if (!route) notFound();
 
@@ -49,6 +50,7 @@ export default async function EditRoutePage({
         facts={{ ...facts, today }}
         suggestedDeparture={suggestedDeparture}
         stopOptions={options}
+        crewOptions={crewOptions}
         savedPath={route.path}
         savedPathSource={route.pathSource}
         savedDistanceM={route.pathDistanceM}
@@ -69,7 +71,11 @@ export default async function EditRoutePage({
             lng: s.lng,
             offsetMin: s.offsetMin,
           })),
-          departures: groupSchedulesByTime(route.schedules).map((g) => ({ time: g.time, vehicles: g.vehicles })),
+          departures: groupSchedulesByTime(route.schedules).map((g) => ({
+            time: g.time,
+            vehicles: g.vehicles,
+            crew: g.schedules.map((s) => ({ driverId: s.driverId, vehicleId: s.vehicleId })),
+          })),
           daysOfWeek: route.schedules[0]?.daysOfWeek ?? [1, 2, 3, 4, 5],
         }}
       />

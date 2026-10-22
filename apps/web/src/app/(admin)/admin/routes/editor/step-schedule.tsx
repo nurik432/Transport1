@@ -1,9 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { MAX_VEHICLES_PER_DEPARTURE, plural, type RouteDeparture } from "@transport/domain";
+import {
+  departureCrew,
+  MAX_VEHICLES_PER_DEPARTURE,
+  plural,
+  type DepartureCrew,
+  type RouteDeparture,
+} from "@transport/domain";
 import { Button, Field, cx, inputClass } from "@/components/ui";
-import { WEEKDAYS } from "./types";
+import { WEEKDAYS, type CrewOptions } from "./types";
 import type { RouteEditor } from "./use-route-editor";
 
 const vehiclesLabel = (n: number) => `${n} ${plural(n, ["машина", "машины", "машин"])}`;
@@ -13,13 +19,16 @@ const vehiclesLabel = (n: number) => `${n} ${plural(n, ["машина", "маш�
  * is why the weekdays are part of this step and not an afterthought.
  *
  * A busy time can take several vehicles. Each is its own trip with its own
- * driver; passengers pick which one they ride.
+ * driver; passengers pick which one they ride. The driver and vehicle chosen
+ * here go on every trip made from that departure.
  */
 export function StepSchedule({
   editor,
+  crewOptions,
   suggestedDeparture = null,
 }: {
   editor: RouteEditor;
+  crewOptions: CrewOptions;
   /** proposed by the analysis screen, pre-filled in the field */
   suggestedDeparture?: string | null;
 }) {
@@ -47,8 +56,26 @@ export function StepSchedule({
   function setVehicles(time: string, vehicles: number) {
     editor.set(
       "departures",
-      value.departures.map((d) => (d.time === time ? { ...d, vehicles } : d)),
+      value.departures.map((d) => (d.time === time ? { ...d, vehicles, crew: d.crew?.slice(0, vehicles) } : d)),
     );
+  }
+
+  function setCrew(time: string, vehicleNo: number, next: DepartureCrew) {
+    editor.set(
+      "departures",
+      value.departures.map((d) => {
+        if (d.time !== time) return d;
+        const crew = Array.from({ length: d.vehicles }, (_, i) => (i === vehicleNo - 1 ? next : departureCrew(d, i + 1)));
+        return { ...d, crew };
+      }),
+    );
+  }
+
+  function pickDriver(d: RouteDeparture, vehicleNo: number, driverId: string) {
+    const current = departureCrew(d, vehicleNo);
+    // The driver's own vehicle comes with them unless one is already chosen.
+    const own = crewOptions.drivers.find((o) => o.id === driverId)?.vehicleId ?? null;
+    setCrew(d.time, vehicleNo, { driverId: driverId || null, vehicleId: current.vehicleId ?? own });
   }
 
   const sorted: RouteDeparture[] = [...value.departures].sort((a, b) => a.time.localeCompare(b.time));
@@ -67,11 +94,13 @@ export function StepSchedule({
           <span className="text-sm text-muted-foreground">Отправления не заданы</span>
         ) : (
           <ul className="flex flex-col gap-2">
-            {sorted.map(({ time: t, vehicles }) => (
-              <li
-                key={t}
-                className="flex min-h-12 flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-border bg-muted px-3 py-1.5"
-              >
+            {sorted.map((departure) => {
+              const { time: t, vehicles } = departure;
+              const index = value.departures.indexOf(departure);
+              const rowError = problems.errors[`departures.${index}`];
+              return (
+              <li key={t} className="flex flex-col gap-2 rounded-lg border border-border bg-muted px-3 py-2">
+                <div className="flex min-h-9 flex-wrap items-center gap-x-4 gap-y-2">
                 <span className="w-14 text-base font-bold tabular-nums">{t}</span>
                 <span className="flex items-center gap-1" role="group" aria-label={`Машин в ${t}`}>
                   <button
@@ -109,13 +138,28 @@ export function StepSchedule({
                 >
                   Убрать
                 </button>
+                </div>
+                {Array.from({ length: vehicles }, (_, i) => (
+                  <CrewRow
+                    key={i}
+                    label={vehicles > 1 ? `Машина ${i + 1}` : null}
+                    time={t}
+                    crew={departureCrew(departure, i + 1)}
+                    options={crewOptions}
+                    onDriver={(id) => pickDriver(departure, i + 1, id)}
+                    onVehicle={(id) => setCrew(t, i + 1, { ...departureCrew(departure, i + 1), vehicleId: id || null })}
+                  />
+                ))}
+                {rowError ? <p className="text-xs font-medium text-danger">{rowError}</p> : null}
               </li>
-            ))}
+              );
+            })}
           </ul>
         )}
-        {sorted.some((d) => d.vehicles > 1) ? (
+        {sorted.length > 0 ? (
           <p className="text-xs text-muted-foreground">
-            Каждая машина — отдельный рейс: транспорт и водителя назначьте в «Рейсах». Пассажир выбирает машину сам.
+            Водитель и транспорт подставляются во все рейсы отправления. Заменить их на отдельный день можно в «Рейсах».
+            {sorted.some((d) => d.vehicles > 1) ? " Каждая машина — отдельный рейс, пассажир выбирает машину сам." : ""}
           </p>
         ) : null}
       </div>
@@ -177,6 +221,64 @@ export function StepSchedule({
           <p className="mt-2 text-xs text-muted-foreground">Дни применяются ко всем отправлениям этого маршрута.</p>
         )}
       </div>
+    </div>
+  );
+}
+
+/** Driver and vehicle of one vehicle of a departure. */
+function CrewRow({
+  label,
+  time,
+  crew,
+  options,
+  onDriver,
+  onVehicle,
+}: {
+  /** "Машина 2" when the time has several vehicles */
+  label: string | null;
+  time: string;
+  crew: DepartureCrew;
+  options: CrewOptions;
+  onDriver: (driverId: string) => void;
+  onVehicle: (vehicleId: string) => void;
+}) {
+  const field = cx(inputClass, "mt-0.5 min-h-9 w-48 text-[13px]");
+  const where = label ? `${time}, ${label.toLowerCase()}` : time;
+  return (
+    <div className="flex flex-wrap items-end gap-2">
+      {label ? <span className="w-20 pb-2 text-[13px] font-semibold text-muted-foreground">{label}</span> : null}
+      <label className="flex flex-col text-[11px] font-bold text-muted-foreground">
+        Водитель
+        <select
+          className={field}
+          aria-label={`Водитель в ${where}`}
+          value={crew.driverId ?? ""}
+          onChange={(e) => onDriver(e.target.value)}
+        >
+          <option value="">Не назначен</option>
+          {options.drivers.map((d) => (
+            <option key={d.id} value={d.id}>
+              {d.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="flex flex-col text-[11px] font-bold text-muted-foreground">
+        Транспорт
+        <select
+          className={field}
+          aria-label={`Транспорт в ${where}`}
+          value={crew.vehicleId ?? ""}
+          onChange={(e) => onVehicle(e.target.value)}
+        >
+          <option value="">Не назначен</option>
+          {options.vehicles.map((v) => (
+            <option key={v.id} value={v.id}>
+              {v.label}
+            </option>
+          ))}
+        </select>
+      </label>
     </div>
   );
 }

@@ -213,6 +213,12 @@ export const routeSchedules = pgTable(
      * so a time served by two buses is two rows and two trips a day.
      */
     vehicleNo: integer("vehicle_no").notNull().default(1),
+    /**
+     * The crew this vehicle departure normally runs with. New trips are made
+     * with it; a trip changed by hand keeps its own crew.
+     */
+    driverId: uuid("driver_id").references(() => drivers.userId, { onDelete: "set null" }),
+    vehicleId: uuid("vehicle_id").references(() => vehicles.id, { onDelete: "set null" }),
     // ISO weekday numbers: 1 = Monday ... 7 = Sunday
     daysOfWeek: integer("days_of_week")
       .array()

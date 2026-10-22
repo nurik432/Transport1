@@ -14,7 +14,7 @@ import { StepSchedule } from "./step-schedule";
 import { StopList } from "./stop-list";
 import { VersionsCard } from "./versions-card";
 import { WIZARD_STEPS, WizardFrame } from "./wizard-frame";
-import type { ReadinessFacts, RouteEditorInit, StopOption, VersionSummary } from "./types";
+import type { CrewOptions, ReadinessFacts, RouteEditorInit, StopOption, VersionSummary } from "./types";
 import { useRouteEditor } from "./use-route-editor";
 import { useRoutePath } from "./use-route-path";
 
@@ -29,6 +29,7 @@ export function RouteEditor({
   mode,
   initial,
   stopOptions,
+  crewOptions,
   facts,
   versions = [],
   savedPath = null,
@@ -39,6 +40,7 @@ export function RouteEditor({
   mode: "create" | "edit";
   initial: RouteEditorInit;
   stopOptions: StopOption[];
+  crewOptions: CrewOptions;
   facts: ReadinessFacts;
   versions?: VersionSummary[];
   /** geometry of the version being edited, shown until the shape changes */
@@ -166,8 +168,8 @@ export function RouteEditor({
     const stepBody = [
       <StepBasics key="basics" editor={editor} />,
       <StepPoints key="points" editor={editor} path={path} />,
-      <StepSchedule key="schedule" editor={editor} suggestedDeparture={suggestedDeparture} />,
-      <StepReview key="review" editor={editor} path={path} />,
+      <StepSchedule key="schedule" editor={editor} crewOptions={crewOptions} suggestedDeparture={suggestedDeparture} />,
+      <StepReview key="review" editor={editor} path={path} crewOptions={crewOptions} />,
     ][currentStep];
 
     return (
@@ -227,7 +229,7 @@ export function RouteEditor({
 
       <Card id="schedule" className={suggestedDeparture ? "scroll-mt-4 ring-2 ring-primary" : "scroll-mt-4"}>
         <SectionTitle>Расписание отправлений</SectionTitle>
-        <StepSchedule editor={editor} suggestedDeparture={suggestedDeparture} />
+        <StepSchedule editor={editor} crewOptions={crewOptions} suggestedDeparture={suggestedDeparture} />
       </Card>
 
       <VersionsCard versions={versions} />
