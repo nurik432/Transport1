@@ -383,3 +383,11 @@ Mechanical record only - see git history for diffs and rationale._
 - 2026-10-22 12:39  Edit  C:/Users/fid926309449/transport1/docs/01-analysis.md
 - 2026-10-22 12:39  Edit  C:/Users/fid926309449/transport1/apps/web/src/app/(admin)/admin/settings/attendance-form.tsx
 - 2026-10-22 12:39  Edit  C:/Users/fid926309449/transport1/apps/web/src/lib/faq.ts
+- 2026-10-22 13:06  Write  C:/Users/fid926309449/transport1/.github/workflows/deploy.yml
+- 2026-10-22 13:06  Edit  C:/Users/fid926309449/transport1/apps/web/Dockerfile
+- 2026-10-22 13:06  Edit  C:/Users/fid926309449/transport1/docs/deploy-dokku.md
+- 2026-10-22 13:06  Edit  C:/Users/fid926309449/transport1/docs/deploy-dokku.md
+- 2026-10-22 13:06  Edit  C:/Users/fid926309449/transport1/docs/deploy-dokku.md
+- 2026-10-22 13:06  Edit  C:/Users/fid926309449/transport1/docs/deploy-dokku.md
+- 2026-10-22 13:06  Edit  C:/Users/fid926309449/transport1/docs/deploy-dokku.md
+- 2026-10-22 13:10  Edit  C:/Users/fid926309449/transport1/docs/deploy-dokku.md

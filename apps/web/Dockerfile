@@ -42,6 +42,9 @@ COPY --from=builder /repo/packages/db/dist/migrate.mjs ./packages/db/dist/migrat
 COPY --from=builder /repo/packages/db/dist/create-admin.mjs ./packages/db/dist/create-admin.mjs
 COPY --from=builder /repo/packages/db/drizzle ./packages/db/drizzle
 COPY --from=builder /repo/scripts/cron-attendance-reminders.mjs ./scripts/cron-attendance-reminders.mjs
+# Dokku deploys this image with git:from-image and reads app.json (predeploy
+# migrations, healthchecks, cron) from the image's WORKDIR, not from the repo.
+COPY app.json ./app.json
 USER nextjs
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
