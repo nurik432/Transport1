@@ -173,10 +173,10 @@ README: заблокируйте его в «Администраторах» с
    dokku builder-dockerfile:set transport dockerfile-path
    ```
 2. Образ собирается под `linux/amd64`; `uname -m` на сервере должен вывести `x86_64`.
-3. После первой сборки сделать пакет публичным: github.com/nurik432?tab=packages →
-   `transport1` → Package settings → Change visibility → Public. Секретов в образе нет.
-   Если образ должен остаться закрытым, вместо этого залогиньте Dokku в реестр токеном
-   с правом `read:packages`: `dokku registry:login ghcr.io nurik432 <токен>`.
+3. Пакет `ghcr.io/nurik432/transport1` публичный (наследует видимость репозитория), Dokku
+   скачивает его без логина. Секретов в образе нет. Если репозиторий станет закрытым,
+   залогиньте Dokku в реестр токеном с правом `read:packages`:
+   `dokku registry:login ghcr.io nurik432 <токен>`.
 
 ### Ключ для деплоя
 
