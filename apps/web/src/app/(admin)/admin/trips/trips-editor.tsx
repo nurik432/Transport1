@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { ActionButton, EntityForm } from "@/components/entity-form";
 import { Button, SectionTitle, cx, inputClass } from "@/components/ui";
-import { assignTrip, cancelTrip, generateTrips } from "../actions";
+import { assignDeparture, assignTrip, cancelTrip, generateTrips } from "../actions";
 
 interface Option {
   value: string;
@@ -51,7 +51,8 @@ export function GenerateTripsForm({
             ]}
           />
           <p className="mt-2 text-xs text-muted-foreground">
-            Транспорт и водитель подставляются из последнего рейса маршрута. Существующие рейсы не дублируются.
+            Транспорт и водитель берутся из расписания маршрута, а если там не заданы — из последнего рейса.
+            Существующие рейсы не дублируются.
           </p>
         </div>
       ) : null}
@@ -75,6 +76,7 @@ export function TripAssignment({
   vehicleOptions,
   driverOptions,
   disabled,
+  departure = null,
 }: {
   tripId: string;
   vehicleId: string;
@@ -84,6 +86,11 @@ export function TripAssignment({
   vehicleOptions: Option[];
   driverOptions: Option[];
   disabled?: boolean;
+  /**
+   * "07:30" when the trip is a planned one made from the timetable: then the
+   * crew can be pinned to the departure and its following trips at once.
+   */
+  departure?: string | null;
 }) {
   const [vehicle, setVehicle] = useState(vehicleId);
   const [driver, setDriver] = useState(driverId);
@@ -91,13 +98,26 @@ export function TripAssignment({
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [pending, start] = useTransition();
+  const [bulkMessage, setBulkMessage] = useState<string | null>(null);
 
   const complete = Boolean(vehicle && driver);
+
+  function applyToDeparture() {
+    setSaved(false);
+    setError(null);
+    setBulkMessage(null);
+    start(async () => {
+      const res = await assignDeparture(tripId, vehicle || null, driver || null);
+      if (res.ok) setBulkMessage(res.message ?? "Сохранено");
+      else setError(res.error ?? "Не удалось назначить на отправление");
+    });
+  }
 
   function save(nextVehicle: string, nextDriver: string) {
     const before = { vehicle, driver };
     setSaved(false);
     setError(null);
+    setBulkMessage(null);
     start(async () => {
       const res = await assignTrip(tripId, nextVehicle || null, nextDriver || null);
       if (res.ok) {
@@ -127,7 +147,30 @@ export function TripAssignment({
             Изменить
           </button>
         )}
+        {/* Offered right after a change, so a new crew can be carried forward
+            without turning every crewed row into a link. */}
+        {departure && !disabled && (saved || bulkMessage) ? (
+          <button
+            type="button"
+            disabled={pending}
+            onClick={applyToDeparture}
+            className="cursor-pointer text-[13px] font-semibold text-primary hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            На все следующие в {departure}
+          </button>
+        ) : null}
+        {pending ? <span className="text-xs text-muted-foreground">Сохранение…</span> : null}
         {saved && !pending ? <span className="text-xs text-ok">Сохранено</span> : null}
+        {bulkMessage && !pending ? (
+          <span role="status" className="basis-full text-xs text-ok">
+            {bulkMessage}
+          </span>
+        ) : null}
+        {error && !pending ? (
+          <span role="alert" className="basis-full text-xs font-medium text-danger">
+            {error}
+          </span>
+        ) : null}
       </span>
     );
   }
@@ -178,8 +221,23 @@ export function TripAssignment({
           ))}
         </select>
       </label>
+      {departure && !disabled && (vehicle || driver) ? (
+        <button
+          type="button"
+          disabled={pending}
+          onClick={applyToDeparture}
+          className="min-h-9 cursor-pointer pb-2 text-[13px] font-semibold text-primary hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          На все следующие рейсы в {departure}
+        </button>
+      ) : null}
       {pending ? <span className="pb-2 text-xs text-muted-foreground">Сохранение…</span> : null}
       {saved && !pending ? <span className="pb-2 text-xs text-ok">Сохранено</span> : null}
+      {bulkMessage && !pending ? (
+        <span role="status" className="basis-full text-xs text-ok">
+          {bulkMessage}
+        </span>
+      ) : null}
       {error && !pending ? (
         <span role="alert" className="basis-full text-xs font-medium text-danger">
           {error}

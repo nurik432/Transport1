@@ -1,9 +1,9 @@
 "use client";
 
-import { formatMinutes, parseTimeToMinutes, plural } from "@transport/domain";
+import { departureCrew, formatMinutes, parseTimeToMinutes, plural } from "@transport/domain";
 import { MapPanel } from "@/components/map";
 import { Panel, RouteBadge } from "@/components/ui";
-import { WEEKDAYS, formatKm } from "./types";
+import { WEEKDAYS, formatKm, type CrewOptions } from "./types";
 import type { RouteEditor } from "./use-route-editor";
 import type { RoutePath } from "./use-route-path";
 
@@ -14,12 +14,31 @@ import type { RoutePath } from "./use-route-path";
  * check, actual clock times are not. It is the only place in the app that shows
  * a route the way a passenger will experience it.
  */
-export function StepReview({ editor, path }: { editor: RouteEditor; path: RoutePath }) {
+export function StepReview({
+  editor,
+  path,
+  crewOptions,
+}: {
+  editor: RouteEditor;
+  path: RoutePath;
+  crewOptions: CrewOptions;
+}) {
   const { value } = editor;
   const sorted = [...value.departures].sort((a, b) => a.time.localeCompare(b.time));
   const first = sorted[0]?.time;
   const withVehicles = (d: { time: string; vehicles: number }) =>
     d.vehicles > 1 ? `${d.time} (${d.vehicles} ${plural(d.vehicles, ["машина", "машины", "машин"])})` : d.time;
+  const driverName = new Map(crewOptions.drivers.map((d) => [d.id, d.name]));
+  const crewLines = sorted.map((d) => {
+    const names = Array.from({ length: d.vehicles }, (_, i) => {
+      const id = departureCrew(d, i + 1).driverId;
+      return (id && driverName.get(id)) || "не назначен";
+    });
+    return `${d.time} — ${names.join(", ")}`;
+  });
+  const unassigned = sorted.some((d) =>
+    Array.from({ length: d.vehicles }, (_, i) => departureCrew(d, i + 1).driverId).some((id) => !id),
+  );
   const days = WEEKDAYS.filter((d) => value.daysOfWeek.includes(d.value))
     .map((d) => d.label)
     .join(", ");
@@ -87,6 +106,18 @@ export function StepReview({ editor, path }: { editor: RouteEditor; path: RouteP
           Отправления не заданы, поэтому рейсов не будет. Вернитесь на шаг «Расписание».
         </Panel>
       )}
+
+      {crewLines.length ? (
+        <div className="text-sm">
+          <p className="font-medium">Водители</p>
+          <p className="text-muted-foreground">{crewLines.join("; ")}</p>
+          {unassigned ? (
+            <p className="mt-1 text-xs text-warn-foreground">
+              Рейсы без водителя придётся назначить вручную в «Рейсах».
+            </p>
+          ) : null}
+        </div>
+      ) : null}
 
       <p className="text-sm text-muted-foreground">Дни недели: {days || "не отмечены"}</p>
     </div>

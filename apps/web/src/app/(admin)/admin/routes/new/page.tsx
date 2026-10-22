@@ -1,12 +1,12 @@
 import { localNow } from "@transport/domain";
 import { requireRole } from "@/lib/auth";
-import { hasActiveVehicles, listStops } from "@/lib/queries";
+import { hasActiveVehicles, listCrewOptions, listStops } from "@/lib/queries";
 import { AdminMain, PageHeader } from "@/components/admin-ui";
 import { RouteEditor } from "../editor/route-editor";
 
 export default async function NewRoutePage() {
   await requireRole("admin");
-  const [allStops, hasVehicles] = await Promise.all([listStops(), hasActiveVehicles()]);
+  const [allStops, hasVehicles, crewOptions] = await Promise.all([listStops(), hasActiveVehicles(), listCrewOptions()]);
   const stops = allStops.filter((s) => s.status === "active");
 
   return (
@@ -19,6 +19,7 @@ export default async function NewRoutePage() {
         mode="create"
         facts={{ plannedTripCount: 0, unassignedTripCount: 0, hasVehicles, today: localNow().date }}
         stopOptions={stops.map((s) => ({ id: s.id, name: s.name, lat: s.lat, lng: s.lng }))}
+        crewOptions={crewOptions}
         initial={{
           name: "",
           description: "",

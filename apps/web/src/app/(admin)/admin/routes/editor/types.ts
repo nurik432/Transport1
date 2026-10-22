@@ -9,6 +9,12 @@ export interface StopOption {
   lng: number;
 }
 
+/** Who a departure can be crewed with. */
+export interface CrewOptions {
+  drivers: { id: string; name: string; vehicleId: string | null }[];
+  vehicles: { id: string; label: string }[];
+}
+
 /** One point of the route as it arrives from the server. */
 export interface EditorPointInit {
   /** null for a point placed on the map; the stop is created on save */
@@ -45,7 +51,7 @@ export interface RouteEditorInit {
   /** empty string means "not set" */
   plannedCapacity: string;
   stops: EditorPointInit[];
-  /** each time with how many vehicles leave at it */
+  /** each time with how many vehicles leave at it, and who drives each */
   departures: RouteDeparture[];
   daysOfWeek: number[];
 }

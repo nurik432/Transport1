@@ -111,6 +111,29 @@ describe("validateRouteForm", () => {
     expect(validateRouteForm(form({ departures: [{ time: "07:00", vehicles: 6 }] })).errors["departures.0"]).toContain("Машин");
     expect(validateRouteForm(form({ departures: [{ time: "07:00", vehicles: 3 }] })).errors).toEqual({});
   });
+
+  it("rejects one driver or one vehicle on two buses of the same departure", () => {
+    const driver = form({
+      departures: [
+        { time: "07:00", vehicles: 2, crew: [{ driverId: "d1", vehicleId: "v1" }, { driverId: "d1", vehicleId: "v2" }] },
+      ],
+    });
+    expect(validateRouteForm(driver).errors["departures.0"]).toContain("один водитель");
+
+    const vehicle = form({
+      departures: [
+        { time: "07:00", vehicles: 2, crew: [{ driverId: "d1", vehicleId: "v1" }, { driverId: "d2", vehicleId: "v1" }] },
+      ],
+    });
+    expect(validateRouteForm(vehicle).errors["departures.0"]).toContain("один транспорт");
+  });
+
+  it("accepts a departure whose vehicles are only partly crewed", () => {
+    const partial = form({
+      departures: [{ time: "07:00", vehicles: 3, crew: [{ driverId: "d1", vehicleId: null }] }],
+    });
+    expect(validateRouteForm(partial).errors).toEqual({});
+  });
 });
 
 describe("routeStepBlockers", () => {
@@ -153,6 +176,11 @@ describe("normalizeRouteForm", () => {
     expect(normalizeRouteForm(form({ departures: [{ time: "08:30", vehicles: 1 }, { time: "07:00", vehicles: 1 }] }))).toBe(
       normalizeRouteForm(form({ departures: [{ time: "07:00", vehicles: 1 }, { time: "08:30", vehicles: 1 }] })),
     );
+  });
+
+  it("notices a change of the crew", () => {
+    const crewed = form({ departures: [{ time: "07:00", vehicles: 1, crew: [{ driverId: "d1", vehicleId: null }] }] });
+    expect(normalizeRouteForm(crewed)).not.toBe(normalizeRouteForm(form()));
   });
 
   it("notices a change in the number of vehicles", () => {

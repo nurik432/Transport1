@@ -74,7 +74,16 @@ export interface RouteDetail {
   pathDistanceM: number | null;
   stops: RouteStopRow[];
   /** one row per vehicle departure; vehicles of one time share `departureTime` */
-  schedules: { id: string; departureTime: string; vehicleNo: number; daysOfWeek: number[]; active: boolean }[];
+  schedules: {
+    id: string;
+    departureTime: string;
+    vehicleNo: number;
+    daysOfWeek: number[];
+    active: boolean;
+    /** the crew this vehicle departure normally runs with */
+    driverId: string | null;
+    vehicleId: string | null;
+  }[];
 }
 
 /** All routes with their stops and schedules. `onlyActive` filters out drafts. */
@@ -161,6 +170,8 @@ export async function listRoutes(onlyActive = true): Promise<RouteDetail[]> {
         vehicleNo: s.vehicleNo,
         daysOfWeek: s.daysOfWeek,
         active: s.active,
+        driverId: s.driverId,
+        vehicleId: s.vehicleId,
       })),
   }));
 }
@@ -308,6 +319,33 @@ export async function getRouteVersions(routeId: string): Promise<RouteVersionSum
 
 export async function listStops() {
   return db.select().from(stops).orderBy(asc(stops.name));
+}
+
+/**
+ * Active drivers and vehicles a departure can be crewed with. A driver carries
+ * the vehicle from their card, so picking the driver can fill the vehicle too.
+ */
+export async function listCrewOptions(): Promise<{
+  drivers: { id: string; name: string; vehicleId: string | null }[];
+  vehicles: { id: string; label: string }[];
+}> {
+  const [driverRows, vehicleRows] = await Promise.all([
+    db
+      .select({ id: drivers.userId, name: users.name, vehicleId: drivers.vehicleId })
+      .from(drivers)
+      .innerJoin(users, eq(users.id, drivers.userId))
+      .where(and(eq(drivers.status, "active"), eq(users.status, "active")))
+      .orderBy(asc(users.name)),
+    db
+      .select({ id: vehicles.id, number: vehicles.number, model: vehicles.model })
+      .from(vehicles)
+      .where(eq(vehicles.status, "active"))
+      .orderBy(asc(vehicles.number)),
+  ]);
+  return {
+    drivers: driverRows,
+    vehicles: vehicleRows.map((v) => ({ id: v.id, label: `${v.number} · ${v.model}` })),
+  };
 }
 
 /** Whether the fleet has any usable vehicle. Needed before a route has trips. */

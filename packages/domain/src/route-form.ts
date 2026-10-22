@@ -25,12 +25,28 @@ export interface RouteFormPoint {
   offsetMin: number;
 }
 
+/** Who normally drives one vehicle of a departure, and in what. */
+export interface DepartureCrew {
+  driverId: string | null;
+  vehicleId: string | null;
+}
+
 /** One departure time and how many vehicles leave at it. */
 export interface RouteDeparture {
   /** "HH:MM" */
   time: string;
   /** 1 for an ordinary departure; 2 or more when several vehicles leave together */
   vehicles: number;
+  /**
+   * The crew of each vehicle, `crew[0]` for машина 1. Shorter than `vehicles`
+   * (or missing) means the rest are not assigned yet.
+   */
+  crew?: readonly DepartureCrew[];
+}
+
+/** The crew of vehicle `vehicleNo` (1-based), empty when none is set. */
+export function departureCrew(d: RouteDeparture, vehicleNo: number): DepartureCrew {
+  return d.crew?.[vehicleNo - 1] ?? { driverId: null, vehicleId: null };
 }
 
 export interface RouteFormInput {
@@ -122,6 +138,21 @@ export function validateRouteForm(input: RouteFormInput): RouteFormProblems {
       errors[`departures.${i}`] = `Машин на одно отправление — от 1 до ${MAX_VEHICLES_PER_DEPARTURE}`;
     }
     times.add(t);
+
+    // Two buses leaving together cannot share a driver or a vehicle.
+    const drivers = new Set<string>();
+    const vehicleIds = new Set<string>();
+    for (let n = 1; n <= vehicles; n++) {
+      const { driverId, vehicleId } = departureCrew(input.departures[i]!, n);
+      if (driverId && drivers.has(driverId)) {
+        errors[`departures.${i}`] ??= `В ${t} один водитель стоит на двух машинах`;
+      }
+      if (vehicleId && vehicleIds.has(vehicleId)) {
+        errors[`departures.${i}`] ??= `В ${t} один транспорт стоит на двух машинах`;
+      }
+      if (driverId) drivers.add(driverId);
+      if (vehicleId) vehicleIds.add(vehicleId);
+    }
   });
 
   // A departure with no weekday never produces a trip, so it is a dead entry
@@ -180,7 +211,13 @@ export function normalizeRouteForm(input: RouteFormInput): string {
     .map((s) => `${s.stopId ?? `new:${s.lat.toFixed(5)},${s.lng.toFixed(5)}`}@${s.offsetMin}`)
     .join(">");
   const departures = input.departures
-    .map((d) => `${d.time}x${d.vehicles}`)
+    .map((d) => {
+      const crew = Array.from({ length: d.vehicles }, (_, n) => {
+        const c = departureCrew(d, n + 1);
+        return `${c.driverId ?? ""}/${c.vehicleId ?? ""}`;
+      });
+      return `${d.time}x${d.vehicles}[${crew.join(";")}]`;
+    })
     .sort()
     .join(",");
   const days = [...input.daysOfWeek].sort((a, b) => a - b).join(",");
