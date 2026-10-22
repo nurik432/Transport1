@@ -24,7 +24,7 @@ export function AttendanceSettingsForm({ settings }: { settings: AttendanceSetti
             type: "number",
             required: true,
             defaultValue: settings.defaultRadiusM,
-            hint: "Отметка дальше этого расстояния помечается как «далеко от точки»",
+            hint: "Дальше этого расстояния от точки скан QR не принимается",
           },
           {
             name: "holidays",

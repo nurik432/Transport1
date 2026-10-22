@@ -1,4 +1,4 @@
-import { distanceMeters, type LatLng } from "./geo";
+import { distanceMeters, formatDistance, type LatLng } from "./geo";
 import { addDays, formatMinutes, parseTimeToMinutes, weekdayOfDate } from "./time";
 
 /**
@@ -89,7 +89,8 @@ export interface GeoCheck {
 
 /**
  * Was the phone really at the point? No position, or a fix too coarse to tell,
- * is "unverified" (counted, flagged). A good fix far away is "out_of_range".
+ * is "unverified". A good fix far away is "out_of_range". Both are refused,
+ * see `scanGeoRejection`.
  */
 export function checkScanGeo(point: PointLike, pos: ScanPosition | null, settings: AttendanceSettings): GeoCheck {
   const radiusM = point.radiusM ?? settings.defaultRadiusM;
@@ -97,6 +98,23 @@ export function checkScanGeo(point: PointLike, pos: ScanPosition | null, setting
   const distanceM = distanceMeters(point, pos);
   if (pos.accuracyM != null && pos.accuracyM > radiusM) return { geo: "unverified", distanceM, radiusM };
   return { geo: distanceM <= radiusM ? "verified" : "out_of_range", distanceM, radiusM };
+}
+
+/**
+ * Why a scan is refused, or null when the phone is inside the point's zone.
+ * Only a precise fix inside the radius is accepted: no position or a coarse
+ * one cannot prove the driver was there.
+ */
+export function scanGeoRejection(check: GeoCheck, pos: ScanPosition | null): string | null {
+  if (check.geo === "verified") return null;
+  if (check.distanceM == null) {
+    return "Не удалось определить местоположение. Разрешите доступ к геолокации и повторите у точки отметки.";
+  }
+  if (check.geo === "unverified") {
+    const acc = pos?.accuracyM != null ? ` (±${formatDistance(pos.accuracyM)})` : "";
+    return `Местоположение определено неточно${acc}. Включите точную геолокацию, выйдите на открытое место и повторите.`;
+  }
+  return `Вы в ${formatDistance(check.distanceM)} от точки отметки. Отметка принимается только в радиусе ${formatDistance(check.radiusM)} от точки.`;
 }
 
 /** Mon–Fri and not a holiday. */

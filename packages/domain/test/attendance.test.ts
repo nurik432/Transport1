@@ -8,6 +8,7 @@ import {
   isWorkingDay,
   monthDates,
   reminderDue,
+  scanGeoRejection,
   summarizeMonth,
   validateAttendanceWindows,
   windowsLabel,
@@ -68,6 +69,24 @@ describe("checkScanGeo", () => {
   it("uses the point's own radius when set", () => {
     const wide = { ...point, radiusM: 5000 };
     expect(checkScanGeo(wide, { lat: 40.3, lng: 69.665, accuracyM: 10 }, S).geo).toBe("verified");
+  });
+});
+
+describe("scanGeoRejection", () => {
+  const point = { lat: 40.269, lng: 69.665, radiusM: null };
+  const reject = (pos: Parameters<typeof checkScanGeo>[1]) => scanGeoRejection(checkScanGeo(point, pos, S), pos);
+
+  it("accepts a precise fix inside the zone", () => {
+    expect(reject({ lat: 40.2695, lng: 69.665, accuracyM: 20 })).toBeNull();
+  });
+  it("rejects a scan without a position", () => {
+    expect(reject(null)).toMatch(/геолокац/);
+  });
+  it("rejects a fix too coarse to place the phone", () => {
+    expect(reject({ lat: 40.2695, lng: 69.665, accuracyM: 800 })).toMatch(/неточно/);
+  });
+  it("rejects a precise fix outside the zone and says how far", () => {
+    expect(reject({ lat: 40.3, lng: 69.665, accuracyM: 10 })).toMatch(/3,4 км.*300 м/);
   });
 });
 
