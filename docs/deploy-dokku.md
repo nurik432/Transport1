@@ -1,7 +1,9 @@
 # Деплой на Dokku
 
-Сервер: `89.125.120.7`, SSH на порту **58595** (не 22), приложение `transport`. Образ собирается из `apps/web/Dockerfile`,
-миграции применяются автоматически перед переключением трафика (`app.json` →
+Сервер: `89.125.120.7`, SSH на порту **58595** (не 22), приложение `transport`. Образ собирается из
+`apps/web/Dockerfile` на раннере GitHub и публикуется в `ghcr.io/nurik432/transport1`;
+Dokku разворачивает готовый образ (`git:from-image`) и сам ничего не собирает. `app.json`
+лежит внутри образа. Миграции применяются автоматически перед переключением трафика (`app.json` →
 `scripts.dokku.predeploy`). Если миграция упала, новая версия не запускается, старая
 продолжает работать.
 
@@ -12,7 +14,6 @@
 ```bash
 # приложение
 dokku apps:create transport
-dokku builder-dockerfile:set transport dockerfile-path apps/web/Dockerfile
 dokku git:set transport deploy-branch main
 dokku ports:set transport http:80:3000   # nginx на :80 внутри сервера, наружу — через Funnel
 
@@ -159,8 +160,25 @@ README: заблокируйте его в «Администраторах» с
 
 ## Автодеплой из GitHub
 
-`.github/workflows/deploy.yml` на каждый пуш в `main` запускает typecheck и тесты, затем
-пушит код в Dokku. Настройка:
+`.github/workflows/deploy.yml` на каждый пуш в `main` параллельно запускает проверки
+(typecheck, lint, тесты, FAQ) и сборку образа. Образ с тегом-хешем коммита уходит в GHCR,
+после чего Dokku получает команду `git:from-image` и выкатывает его. Весь деплой занимает
+несколько минут; раньше образ собирался на сервере, и одна сборка Next.js шла ~18 минут.
+
+### Переход со сборки на сервере (один раз)
+
+1. Снять путь к Dockerfile: при деплое образа Dokku генерирует свой Dockerfile, и старая
+   настройка ломает его (`Invalid dockerfile-path specified`):
+   ```bash
+   dokku builder-dockerfile:set transport dockerfile-path
+   ```
+2. Образ собирается под `linux/amd64`; `uname -m` на сервере должен вывести `x86_64`.
+3. После первой сборки сделать пакет публичным: github.com/nurik432?tab=packages →
+   `transport1` → Package settings → Change visibility → Public. Секретов в образе нет.
+   Если образ должен остаться закрытым, вместо этого залогиньте Dokku в реестр токеном
+   с правом `read:packages`: `dokku registry:login ghcr.io nurik432 <токен>`.
+
+### Ключ для деплоя
 
 1. Сгенерировать отдельный ключ для деплоя (без пароля):
    ```bash
@@ -174,13 +192,15 @@ README: заблокируйте его в «Администраторах» с
    имя `DOKKU_SSH_PRIVATE_KEY`, значение — содержимое файла `dokku_deploy`.
 4. Удалить локальные файлы ключа.
 
-Ручной запуск: вкладка Actions → Deploy → Run workflow.
+Ручной запуск: вкладка Actions → Deploy → Run workflow. Запуск с другой ветки проверяет
+и собирает образ, но на сервер его не выкатывает.
 
 ## Ручной деплой
 
+Выкатить любой уже собранный образ, например чтобы откатиться на прошлый коммит:
+
 ```bash
-git remote add dokku ssh://dokku@89.125.120.7:58595/transport
-git push dokku main
+dokku git:from-image transport ghcr.io/nurik432/transport1:<полный хеш коммита>
 ```
 
 ## Диагностика
@@ -189,5 +209,5 @@ git push dokku main
 dokku logs transport -t          # логи приложения
 dokku ps:report transport        # состояние контейнеров
 dokku config:show transport      # переменные окружения
-dokku ps:rebuild transport       # пересобрать без нового пуша
+dokku ps:rebuild transport       # перезапустить текущий образ без нового деплоя
 ```
