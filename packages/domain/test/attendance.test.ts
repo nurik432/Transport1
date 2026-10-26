@@ -5,7 +5,6 @@ import {
   classifyScanTime,
   computeDay,
   dayCode,
-  isWorkingDay,
   monthDates,
   reminderDue,
   scanGeoRejection,
@@ -90,14 +89,6 @@ describe("scanGeoRejection", () => {
   });
 });
 
-describe("isWorkingDay", () => {
-  it("is Mon–Fri minus holidays", () => {
-    expect(isWorkingDay("2026-10-19", S)).toBe(true); // Monday
-    expect(isWorkingDay("2026-10-17", S)).toBe(false); // Saturday
-    expect(isWorkingDay("2026-10-19", { holidays: ["2026-10-19"] })).toBe(false);
-  });
-});
-
 describe("computeDay", () => {
   const scan = (kind: ScanKind, extra: Partial<{ duplicate: boolean; deletedAt: Date | null }> = {}) => ({
     kind,
@@ -105,8 +96,8 @@ describe("computeDay", () => {
     deletedAt: null,
     ...extra,
   });
-  const day = (scans: ReturnType<typeof scan>[], date = "2026-10-19", override: { status: OverrideStatus } | null = null) =>
-    computeDay({ date, scans, override, settings: S });
+  const day = (scans: ReturnType<typeof scan>[], working = true, override: { status: OverrideStatus } | null = null) =>
+    computeDay({ scans, override, working });
 
   it("two windows make a full day", () => {
     const v = day([scan("morning"), scan("evening")]);
@@ -127,19 +118,19 @@ describe("computeDay", () => {
     const v = day([scan("morning"), scan("evening", { duplicate: true }), scan("evening", { deletedAt: new Date() }), scan("off_window")]);
     expect(v.status).toBe("partial");
   });
-  it("marks a full day on a weekend as off schedule", () => {
-    const v = day([scan("morning"), scan("evening")], "2026-10-17");
+  it("marks a full day on a day off as off schedule", () => {
+    const v = day([scan("morning"), scan("evening")], false);
     expect(v.status).toBe("full");
     expect(v.offSchedule).toBe(true);
     expect(dayCode(v)).toBe("Яв");
   });
   it("lets the override win over the scans", () => {
-    const v = day([scan("morning"), scan("evening")], "2026-10-19", { status: "sick" });
+    const v = day([scan("morning"), scan("evening")], true, { status: "sick" });
     expect(v.status).toBe("sick");
     expect(v.overridden).toBe(true);
     expect(dayCode(v)).toBe("Б");
-    expect(dayCode(day([], "2026-10-19", { status: "worked" }))).toBe("Я");
-    expect(dayCode(day([], "2026-10-19", { status: "not_worked" }))).toBe("НН");
+    expect(dayCode(day([], true, { status: "worked" }))).toBe("Я");
+    expect(dayCode(day([], true, { status: "not_worked" }))).toBe("НН");
   });
 });
 
@@ -154,46 +145,36 @@ describe("month helpers", () => {
     expect(monthDates("2026-10")).toHaveLength(31);
   });
   it("totals a month, counting missing only on working days", () => {
-    const full = computeDay({ date: "2026-10-19", scans: [plain("morning"), plain("evening")], override: null, settings: S });
-    const none = computeDay({ date: "2026-10-20", scans: [], override: null, settings: S });
-    const sat = computeDay({ date: "2026-10-17", scans: [], override: null, settings: S });
-    const sick = computeDay({ date: "2026-10-21", scans: [], override: { status: "sick" }, settings: S });
-    const t = summarizeMonth(
-      [
-        { date: "2026-10-19", verdict: full },
-        { date: "2026-10-20", verdict: none },
-        { date: "2026-10-17", verdict: sat },
-        { date: "2026-10-21", verdict: sick },
-      ],
-      S,
-    );
+    const full = computeDay({ scans: [plain("morning"), plain("evening")], override: null, working: true });
+    const none = computeDay({ scans: [], override: null, working: true });
+    const off = computeDay({ scans: [], override: null, working: false });
+    const sick = computeDay({ scans: [], override: { status: "sick" }, working: true });
+    const t = summarizeMonth([
+      { verdict: full, working: true },
+      { verdict: none, working: true },
+      { verdict: off, working: false },
+      { verdict: sick, working: true },
+    ]);
     expect(t).toEqual({ full: 1, partial: 0, missing: 1, vacation: 0, sick: 1, dayOff: 0, notWorked: 0 });
   });
 });
 
 describe("reminderDue", () => {
-  const MON = "2026-10-19";
-  const SAT = "2026-10-24";
-
   it("is due in the last 30 minutes of a window, edges included", () => {
-    expect(reminderDue(MON, min(10, 30), S)).toBe("morning");
-    expect(reminderDue(MON, min(11), S)).toBe("morning");
-    expect(reminderDue(MON, min(20, 30), S)).toBe("evening");
-    expect(reminderDue(MON, min(21), S)).toBe("evening");
+    expect(reminderDue(min(10, 30), S)).toBe("morning");
+    expect(reminderDue(min(11), S)).toBe("morning");
+    expect(reminderDue(min(20, 30), S)).toBe("evening");
+    expect(reminderDue(min(21), S)).toBe("evening");
   });
   it("is not due earlier in the window or after it closes", () => {
-    expect(reminderDue(MON, min(10, 29), S)).toBeNull();
-    expect(reminderDue(MON, min(11, 1), S)).toBeNull();
-    expect(reminderDue(MON, min(13), S)).toBeNull();
-    expect(reminderDue(MON, min(21, 1), S)).toBeNull();
-  });
-  it("is never due on a weekend or a holiday", () => {
-    expect(reminderDue(SAT, min(10, 45), S)).toBeNull();
-    expect(reminderDue(MON, min(10, 45), { ...S, holidays: [MON] })).toBeNull();
+    expect(reminderDue(min(10, 29), S)).toBeNull();
+    expect(reminderDue(min(11, 1), S)).toBeNull();
+    expect(reminderDue(min(13), S)).toBeNull();
+    expect(reminderDue(min(21, 1), S)).toBeNull();
   });
   it("covers the whole window when it is shorter than the lead time", () => {
     const short = { ...S, morning: { from: "08:00", to: "08:20" } };
-    expect(reminderDue(MON, min(8), short)).toBe("morning");
-    expect(reminderDue(MON, min(7, 59), short)).toBeNull();
+    expect(reminderDue(min(8), short)).toBe("morning");
+    expect(reminderDue(min(7, 59), short)).toBeNull();
   });
 });

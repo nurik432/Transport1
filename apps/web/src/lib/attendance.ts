@@ -9,6 +9,7 @@ import {
   formatLocalTime,
   localNow,
   monthDates,
+  normDays,
   scanGeoRejection,
   summarizeMonth,
   windowsLabel,
@@ -20,6 +21,7 @@ import {
   type ScanPosition,
 } from "@transport/domain";
 import { db, schema } from "./db";
+import { loadWorkCalendars } from "./work-schedules";
 
 const { attendancePoints, attendanceScans, attendanceDayOverrides, settings, trips, routes } = schema;
 
@@ -205,6 +207,8 @@ export interface DayScan {
 export interface MonthDay {
   date: string;
   verdict: DayVerdict;
+  /** a working day by the driver's schedule */
+  working: boolean;
   scans: DayScan[];
   overrideReason: string | null;
 }
@@ -214,14 +218,19 @@ export interface DriverMonth {
   days: MonthDay[];
   totals: MonthTotals;
   settings: AttendanceSettings;
+  /** schedule in force today, or on the last day of a past month */
+  scheduleName: string;
+  /** working days in the month by the schedule */
+  norm: number;
 }
 
 /** One driver's month, newest day first, for "Мой табель" and the admin's day panel. */
 export async function getDriverMonth(userId: string, month: string): Promise<DriverMonth> {
   const dates = monthDates(month);
   const [first, last] = [dates[0]!, dates.at(-1)!];
-  const [cfg, scanRows, overrideRows] = await Promise.all([
+  const [cfg, calendars, scanRows, overrideRows] = await Promise.all([
     getAttendanceSettings(),
+    loadWorkCalendars([userId]),
     db
       .select({
         id: attendanceScans.id,
@@ -253,19 +262,30 @@ export async function getDriverMonth(userId: string, month: string): Promise<Dri
   const overrideByDate = new Map(overrideRows.map((o) => [o.date, o]));
 
   const today = localNow().date;
+  const cal = calendars.calendarOf(userId);
   const days: MonthDay[] = dates
     .filter((d) => d <= today)
     .map((date) => {
       const scans = byDate.get(date) ?? [];
       const override = overrideByDate.get(date) ?? null;
+      const working = cal.isWorkDay(date);
       return {
         date,
         scans,
+        working,
         overrideReason: override?.reason ?? null,
-        verdict: computeDay({ date, scans, override, settings: cfg }),
+        verdict: computeDay({ scans, override, working }),
       };
     })
     .reverse();
 
-  return { month, days, totals: summarizeMonth(days, cfg), settings: cfg };
+  const labelDate = last < today ? last : today < first ? first : today;
+  return {
+    month,
+    days,
+    totals: summarizeMonth(days),
+    settings: cfg,
+    scheduleName: calendars.scheduleName(cal.scheduleIdAt(labelDate)),
+    norm: normDays(dates, cal.isWorkDay),
+  };
 }

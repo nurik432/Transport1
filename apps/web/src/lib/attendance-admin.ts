@@ -7,6 +7,7 @@ import {
   localDateTime,
   localNow,
   monthDates,
+  normDays,
   parseTimeToMinutes,
   summarizeMonth,
   type AttendanceSettings,
@@ -16,6 +17,7 @@ import {
 } from "@transport/domain";
 import { db, schema } from "./db";
 import { KIND_LABEL, getAttendanceSettings } from "./attendance";
+import { loadWorkCalendars } from "./work-schedules";
 
 const { attendanceScans, attendanceDayOverrides, attendanceAudit, users, drivers } = schema;
 
@@ -25,6 +27,8 @@ export interface MonthCell {
   date: string;
   code: string;
   verdict: DayVerdict | null;
+  /** a working day by this driver's schedule */
+  working: boolean;
 }
 
 export interface MonthRow {
@@ -32,6 +36,10 @@ export interface MonthRow {
   name: string;
   phone: string;
   active: boolean;
+  /** schedule in force on the last day of the month shown (or today) */
+  scheduleName: string;
+  /** working days in the month by the schedule */
+  norm: number;
   /** one cell per date of the month, in order; future dates carry no verdict */
   cells: MonthCell[];
   totals: MonthTotals;
@@ -91,30 +99,35 @@ export async function getMonthReport(month: string): Promise<MonthReport> {
     scansBy.set(key, [...(scansBy.get(key) ?? []), r]);
   }
   const overrideBy = new Map(overrideRows.map((o) => [`${o.userId}:${o.date}`, o]));
+  const calendars = await loadWorkCalendars(people.map((p) => p.userId));
+  const labelDate = last < today ? last : today < first ? first : today;
 
   const rows: MonthRow[] = people.map((p) => {
+    const cal = calendars.calendarOf(p.userId);
     const days = dates
       .filter((d) => d <= today)
-      .map((date) => ({
-        date,
-        verdict: computeDay({
-          date,
+      .map((date) => {
+        const working = cal.isWorkDay(date);
+        const verdict = computeDay({
           scans: scansBy.get(`${p.userId}:${date}`) ?? [],
           override: overrideBy.get(`${p.userId}:${date}`) ?? null,
-          settings: cfg,
-        }),
-      }));
+          working,
+        });
+        return { date, verdict, working };
+      });
     const byDate = new Map(days.map((d) => [d.date, d.verdict]));
     return {
       userId: p.userId,
       name: p.name,
       phone: p.phone,
       active: p.status === "active" && p.userStatus === "active",
+      scheduleName: calendars.scheduleName(cal.scheduleIdAt(labelDate)),
+      norm: normDays(dates, cal.isWorkDay),
       cells: dates.map((date) => {
         const verdict = byDate.get(date) ?? null;
-        return { date, verdict, code: verdict ? dayCode(verdict) : "" };
+        return { date, verdict, working: cal.isWorkDay(date), code: verdict ? dayCode(verdict) : "" };
       }),
-      totals: summarizeMonth(days, cfg),
+      totals: summarizeMonth(days),
     };
   });
 

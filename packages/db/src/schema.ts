@@ -39,12 +39,15 @@ export const notificationType = pgEnum("notification_type", [
   "route_overloaded",
   "route_underloaded",
   "attendance_reminder",
+  "work_schedule_changed",
 ]);
 export const attendancePointStatus = pgEnum("attendance_point_status", ["active", "inactive"]);
 export const attendanceScanKind = pgEnum("attendance_scan_kind", ["morning", "evening", "off_window"]);
 export const attendanceGeo = pgEnum("attendance_geo", ["verified", "unverified", "out_of_range"]);
 export const attendanceSource = pgEnum("attendance_source", ["qr", "manual"]);
 export const attendanceDayStatus = pgEnum("attendance_day_status", ["worked", "not_worked", "vacation", "sick", "day_off"]);
+export const workScheduleKind = pgEnum("work_schedule_kind", ["weekly", "cycle"]);
+export const workScheduleStatus = pgEnum("work_schedule_status", ["active", "archived"]);
 
 // ---------- Users & auth ----------
 
@@ -569,6 +572,87 @@ export const attendanceAudit = pgTable(
   (t) => [index("attendance_audit_user_date_idx").on(t.userId, t.date)],
 );
 
+// ---------- Work schedules (which days a driver is due at work) ----------
+
+/** A schedule in the catalogue: 5/2, 6/1, 2/2. Its days live in versions. */
+export const workSchedules = pgTable(
+  "work_schedules",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    /** fixed for the life of the schedule */
+    kind: workScheduleKind("kind").notNull(),
+    /** drivers without an assignment are on this schedule; at most one */
+    isDefault: boolean("is_default").notNull().default(false),
+    status: workScheduleStatus("status").notNull().default("active"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("work_schedules_default_idx").on(t.isDefault).where(sql`${t.isDefault}`)],
+);
+
+/** The days of a schedule from `effective_from` on; everyone on it follows. */
+export const workScheduleVersions = pgTable(
+  "work_schedule_versions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    scheduleId: uuid("schedule_id")
+      .notNull()
+      .references(() => workSchedules.id, { onDelete: "cascade" }),
+    effectiveFrom: date("effective_from").notNull(),
+    /** weekly: ISO weekdays 1..7 that are working days */
+    weekdays: integer("weekdays").array(),
+    /** cycle: days on, then days off */
+    workDays: integer("work_days"),
+    restDays: integer("rest_days"),
+    /** holidays from settings.attendance are days off */
+    holidaysOff: boolean("holidays_off").notNull(),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("work_schedule_versions_schedule_from_idx").on(t.scheduleId, t.effectiveFrom)],
+);
+
+/** A driver is on a schedule from `effective_from` until the next assignment. */
+export const driverWorkSchedules = pgTable(
+  "driver_work_schedules",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => drivers.userId, { onDelete: "cascade" }),
+    scheduleId: uuid("schedule_id")
+      .notNull()
+      .references(() => workSchedules.id, { onDelete: "restrict" }),
+    effectiveFrom: date("effective_from").notNull(),
+    /** cycle schedules: first working day of the cycle; null = effective_from */
+    cycleStart: date("cycle_start"),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("driver_work_schedules_user_from_idx").on(t.userId, t.effectiveFrom),
+    index("driver_work_schedules_schedule_idx").on(t.scheduleId),
+  ],
+);
+
+/** Every change to schedules and assignments: who, what, why. */
+export const workScheduleAudit = pgTable(
+  "work_schedule_audit",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    scheduleId: uuid("schedule_id").references(() => workSchedules.id, { onDelete: "set null" }),
+    /** the driver, for assignment changes */
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
+    action: text("action").notNull(),
+    before: jsonb("before").$type<Record<string, unknown> | null>(),
+    after: jsonb("after").$type<Record<string, unknown> | null>(),
+    adminId: uuid("admin_id").references(() => users.id, { onDelete: "set null" }),
+    reason: text("reason"),
+    at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("work_schedule_audit_schedule_idx").on(t.scheduleId), index("work_schedule_audit_user_idx").on(t.userId)],
+);
+
 // ---------- Inferred types ----------
 
 export type User = typeof users.$inferSelect;
@@ -591,3 +675,6 @@ export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;
 export type AttendancePoint = typeof attendancePoints.$inferSelect;
 export type AttendanceScan = typeof attendanceScans.$inferSelect;
 export type AttendanceDayOverride = typeof attendanceDayOverrides.$inferSelect;
+export type WorkSchedule = typeof workSchedules.$inferSelect;
+export type WorkScheduleVersionRow = typeof workScheduleVersions.$inferSelect;
+export type DriverWorkSchedule = typeof driverWorkSchedules.$inferSelect;

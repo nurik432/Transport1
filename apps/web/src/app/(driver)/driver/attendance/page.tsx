@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { DAY_STATUS_LABEL, formatLocalDate, isWorkingDay, localNow, type DayVerdict } from "@transport/domain";
+import { DAY_STATUS_LABEL, formatLocalDate, localNow, plural, type DayVerdict } from "@transport/domain";
 import { requireRole } from "@/lib/auth";
 import { getDriverMonth } from "@/lib/attendance";
 import { EmptyState, Pill, cx } from "@/components/ui";
@@ -79,6 +79,16 @@ export default async function DriverAttendance({ searchParams }: { searchParams:
       </header>
 
       <main className="mx-auto flex w-full max-w-md flex-col gap-4 px-4 pt-1 pb-4">
+        <section aria-label="График работы" className="flex items-center justify-between gap-3 rounded-2xl bg-card px-3.5 py-3">
+          <span className="flex min-w-0 flex-col">
+            <span className="text-xs text-muted-foreground">График работы</span>
+            <span className="truncate text-[15px] font-bold">{report.scheduleName}</span>
+          </span>
+          <span className="shrink-0 text-right text-[13px] text-muted-foreground">
+            норма <span className="font-bold text-body tabular-nums">{report.norm}</span> {plural(report.norm, ["день", "дня", "дней"])}
+          </span>
+        </section>
+
         <div className="grid grid-cols-3 gap-2">
           <Tile value={report.totals.full} label="полных" />
           <Tile value={report.totals.partial} label="неполных" />
@@ -100,7 +110,7 @@ export default async function DriverAttendance({ searchParams }: { searchParams:
         ) : (
           <section className="flex flex-col rounded-2xl bg-card">
             {report.days.map((d) => {
-              const working = isWorkingDay(d.date, report.settings);
+              const working = d.working;
               const morning = d.scans.find((s) => s.kind === "morning" && !s.duplicate && !s.deletedAt);
               const evening = d.scans.find((s) => s.kind === "evening" && !s.duplicate && !s.deletedAt);
               return (
@@ -119,7 +129,7 @@ export default async function DriverAttendance({ searchParams }: { searchParams:
                   </span>
                   <Pill tone={tone(d.verdict)}>
                     {d.verdict.status === "none" && !working ? "Выходной" : DAY_STATUS_LABEL[d.verdict.status]}
-                    {d.verdict.offSchedule ? " · вне графика" : ""}
+                    {d.verdict.offSchedule ? " · в выходной" : ""}
                   </Pill>
                 </article>
               );
