@@ -85,6 +85,13 @@
       "when": 1792640739423,
       "tag": "0011_departure_crew",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1792993420888,
+      "tag": "0012_work_schedules",
+      "breakpoints": true
     }
   ]
 }

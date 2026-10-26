@@ -15,3 +15,4 @@ export * from "./lock";
 export * from "./admins";
 export * from "./subscription";
 export * from "./attendance";
+export * from "./work-schedule";

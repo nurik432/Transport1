@@ -1,5 +1,5 @@
 import { distanceMeters, formatDistance, type LatLng } from "./geo";
-import { addDays, formatMinutes, parseTimeToMinutes, weekdayOfDate } from "./time";
+import { addDays, formatMinutes, parseTimeToMinutes } from "./time";
 
 /**
  * Driver timesheet by QR. A driver scans the printed code at the gate twice a
@@ -20,7 +20,7 @@ export interface AttendanceSettings {
   evening: AttendanceWindow;
   /** metres; used by points without their own radius */
   defaultRadiusM: number;
-  /** YYYY-MM-DD dates that are not working days although they fall on Mon–Fri */
+  /** YYYY-MM-DD public holidays; days off for schedules that observe them */
   holidays: string[];
 }
 
@@ -117,26 +117,20 @@ export function scanGeoRejection(check: GeoCheck, pos: ScanPosition | null): str
   return `Вы в ${formatDistance(check.distanceM)} от точки отметки. Отметка принимается только в радиусе ${formatDistance(check.radiusM)} от точки.`;
 }
 
-/** Mon–Fri and not a holiday. */
-export function isWorkingDay(date: string, settings: Pick<AttendanceSettings, "holidays">): boolean {
-  return weekdayOfDate(date) <= 5 && !settings.holidays.includes(date);
-}
-
 /** How long before a window closes a driver without a scan is reminded. */
 export const REMINDER_LEAD_MIN = 30;
 
 /**
  * The window whose reminder is due at this local time, or null. Due during the
- * last `leadMin` minutes of a window on a working day; a window shorter than
- * that is covered whole.
+ * last `leadMin` minutes of a window; a window shorter than that is covered
+ * whole. Whether the day is a working day for a driver is the caller's check:
+ * it depends on that driver's schedule.
  */
 export function reminderDue(
-  date: string,
   minutes: number,
-  settings: AttendanceSettings,
+  settings: Pick<AttendanceSettings, "morning" | "evening">,
   leadMin: number = REMINDER_LEAD_MIN,
 ): "morning" | "evening" | null {
-  if (!isWorkingDay(date, settings)) return null;
   for (const kind of ["morning", "evening"] as const) {
     const w = settings[kind];
     const end = parseTimeToMinutes(w.to);
@@ -160,7 +154,7 @@ export interface DayVerdict {
   status: DayStatus;
   /** the verdict came from an administrator, not from scans */
   overridden: boolean;
-  /** worked on a weekend or holiday */
+  /** worked on a day off by the driver's schedule */
   offSchedule: boolean;
   morning: boolean;
   evening: boolean;
@@ -176,15 +170,15 @@ export function countedScans<T extends ScanLike>(scans: readonly T[]): T[] {
  * two windows covered = full, one = partial, none = none.
  */
 export function computeDay(args: {
-  date: string;
   scans: readonly ScanLike[];
   override: OverrideLike | null;
-  settings: AttendanceSettings;
+  /** a working day by the driver's schedule, see `buildWorkCalendar` */
+  working: boolean;
 }): DayVerdict {
   const counted = countedScans(args.scans);
   const morning = counted.some((s) => s.kind === "morning");
   const evening = counted.some((s) => s.kind === "evening");
-  const working = isWorkingDay(args.date, args.settings);
+  const working = args.working;
 
   if (args.override) {
     return { status: args.override.status, overridden: true, offSchedule: false, morning, evening };
@@ -247,9 +241,9 @@ export interface MonthTotals {
 }
 
 /** Per-driver totals for a month, from the per-day verdicts. */
-export function summarizeMonth(days: readonly { date: string; verdict: DayVerdict }[], settings: AttendanceSettings): MonthTotals {
+export function summarizeMonth(days: readonly { verdict: DayVerdict; working: boolean }[]): MonthTotals {
   const t: MonthTotals = { full: 0, partial: 0, missing: 0, vacation: 0, sick: 0, dayOff: 0, notWorked: 0 };
-  for (const { date, verdict } of days) {
+  for (const { verdict, working } of days) {
     switch (verdict.status) {
       case "full":
       case "worked":
@@ -259,7 +253,7 @@ export function summarizeMonth(days: readonly { date: string; verdict: DayVerdic
         t.partial += 1;
         break;
       case "none":
-        if (isWorkingDay(date, settings)) t.missing += 1;
+        if (working) t.missing += 1;
         break;
       case "vacation":
         t.vacation += 1;

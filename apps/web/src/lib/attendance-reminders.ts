@@ -4,6 +4,7 @@ import { localNow, reminderDue, shortTime } from "@transport/domain";
 import { getAttendanceSettings } from "./attendance";
 import { db, schema } from "./db";
 import { notify } from "./push";
+import { loadWorkCalendars } from "./work-schedules";
 
 const { attendanceReminders, attendanceScans, attendanceDayOverrides, drivers, users } = schema;
 
@@ -26,7 +27,7 @@ export interface ReminderRun {
 export async function sendDueReminders(at: Date = new Date()): Promise<ReminderRun> {
   const cfg = await getAttendanceSettings();
   const now = localNow(at);
-  const kind = reminderDue(now.date, now.minutes, cfg);
+  const kind = reminderDue(now.minutes, cfg);
   if (!kind) return { kind: null, date: now.date, sent: 0 };
 
   const pending = await db
@@ -42,11 +43,14 @@ export async function sendDueReminders(at: Date = new Date()): Promise<ReminderR
         sql`not exists (select 1 from ${attendanceDayOverrides} ov where ov.user_id = ${users.id} and ov.date = ${now.date})`,
       ),
     );
-  if (!pending.length) return { kind, date: now.date, sent: 0 };
+  // Only drivers due at work today by their own schedule.
+  const calendars = await loadWorkCalendars(pending.map((p) => p.userId));
+  const due = pending.filter((p) => calendars.calendarOf(p.userId).isWorkDay(now.date));
+  if (!due.length) return { kind, date: now.date, sent: 0 };
 
   const claimed = await db
     .insert(attendanceReminders)
-    .values(pending.map((p) => ({ userId: p.userId, date: now.date, kind })))
+    .values(due.map((p) => ({ userId: p.userId, date: now.date, kind })))
     .onConflictDoNothing()
     .returning({ userId: attendanceReminders.userId });
   if (!claimed.length) return { kind, date: now.date, sent: 0 };

@@ -5,7 +5,6 @@ import {
   DEFAULT_ATTENDANCE_SETTINGS,
   addDays,
   formatMinutes,
-  isWorkingDay,
   localDateTime,
   localNow,
   parseTimeToMinutes,
@@ -544,7 +543,7 @@ async function main() {
   const scanRows: (typeof s.attendanceScans.$inferInsert)[] = [];
   for (let back = 14; back >= 1; back--) {
     const date = addDays(today, -back);
-    if (!isWorkingDay(date, DEFAULT_ATTENDANCE_SETTINGS)) continue;
+    if (weekdayOfDate(date) > 5) continue; // the default 5/2 schedule
     driverUsers.forEach((u, i) => {
       // the second driver once forgot the evening scan; the third skipped a day
       if (i === 2 && back === 5) return;

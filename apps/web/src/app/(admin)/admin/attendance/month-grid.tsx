@@ -2,12 +2,13 @@
 
 import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { DAY_STATUS_LABEL, OVERRIDE_STATUSES, formatLocalDate, formatLocalTime, isWorkingDay, type OverrideStatus } from "@transport/domain";
+import { DAY_STATUS_LABEL, OVERRIDE_STATUSES, formatLocalDate, formatLocalTime, type OverrideStatus } from "@transport/domain";
 import type { MonthReport } from "@/lib/attendance-admin";
 import type { DayScan } from "@/lib/attendance";
 import type { FormResult } from "@/components/entity-form";
 import { Button, Field, Pill, cx, inputClass } from "@/components/ui";
 import { IconClose } from "@/components/icons";
+import { DriverScheduleButton } from "./schedules/driver-schedule-dialog";
 import { adminAddScan, adminClearOverride, adminDeleteScan, adminReclassifyScan, adminSetOverride, loadDay, type DayDetails } from "./day-actions";
 
 const KIND_LABEL: Record<DayScan["kind"], string> = { morning: "Утро", evening: "Вечер", off_window: "Вне окна" };
@@ -25,7 +26,7 @@ type Selected = { userId: string; name: string; date: string };
 
 /** Cell colour says the state; the code says it again for print and for colour-blind readers. */
 function cellClass(code: string, working: boolean, future: boolean): string {
-  if (future) return "text-subtle";
+  if (future) return working ? "text-subtle" : "bg-muted/70 text-subtle";
   switch (code) {
     case "Я":
     case "Яв":
@@ -39,7 +40,7 @@ function cellClass(code: string, working: boolean, future: boolean): string {
     case "В":
       return "bg-primary-soft text-primary font-bold";
     default:
-      return working ? "bg-danger-soft/40 text-muted-foreground" : "text-subtle";
+      return working ? "bg-danger-soft/40 text-muted-foreground" : "bg-muted/70 text-subtle";
   }
 }
 
@@ -55,20 +56,20 @@ export function MonthGrid({ report }: { report: MonthReport }) {
               <th scope="col" className="sticky left-0 z-10 bg-muted px-3 py-2 text-left text-[13px] font-semibold">
                 Водитель
               </th>
-              {report.dates.map((d) => {
-                const working = isWorkingDay(d, report.settings);
-                return (
-                  <th
-                    key={d}
-                    scope="col"
-                    className={cx("min-w-7 px-0.5 py-1 text-center font-medium tabular-nums", !working && "text-subtle")}
-                    title={formatLocalDate(d, { weekday: "long", day: "numeric", month: "long" })}
-                  >
-                    <span className="block">{Number(d.slice(8, 10))}</span>
-                    <span className="block text-[10px] font-normal">{formatLocalDate(d, { weekday: "short" })}</span>
-                  </th>
-                );
-              })}
+              {report.dates.map((d) => (
+                <th
+                  key={d}
+                  scope="col"
+                  className="min-w-7 px-0.5 py-1 text-center font-medium tabular-nums"
+                  title={formatLocalDate(d, { weekday: "long", day: "numeric", month: "long" })}
+                >
+                  <span className="block">{Number(d.slice(8, 10))}</span>
+                  <span className="block text-[10px] font-normal">{formatLocalDate(d, { weekday: "short" })}</span>
+                </th>
+              ))}
+              <th scope="col" className="px-2 py-2 text-right text-[11px] font-semibold whitespace-nowrap" title="Рабочих дней по графику">
+                Норма
+              </th>
               <th scope="col" className="px-2 py-2 text-right text-[11px] font-semibold whitespace-nowrap">
                 Полн.
               </th>
@@ -89,9 +90,15 @@ export function MonthGrid({ report }: { report: MonthReport }) {
                 <th scope="row" className="sticky left-0 z-10 bg-card px-3 py-1.5 text-left text-[13px] font-medium whitespace-nowrap">
                   {row.name}
                   {!row.active ? <span className="ml-1 text-xs font-normal text-muted-foreground">неактивен</span> : null}
+                  <DriverScheduleButton
+                    userId={row.userId}
+                    name={row.name}
+                    scheduleName={row.scheduleName}
+                    className="block cursor-pointer text-left text-[11px] font-normal text-muted-foreground hover:text-primary hover:underline"
+                  />
                 </th>
                 {row.cells.map((c) => {
-                  const working = isWorkingDay(c.date, report.settings);
+                  const working = c.working;
                   const future = c.date > report.today;
                   const active = selected?.userId === row.userId && selected.date === c.date;
                   return (
@@ -112,6 +119,7 @@ export function MonthGrid({ report }: { report: MonthReport }) {
                     </td>
                   );
                 })}
+                <td className="px-2 text-right tabular-nums text-muted-foreground">{row.norm}</td>
                 <td className="px-2 text-right tabular-nums">{row.totals.full}</td>
                 <td className="px-2 text-right tabular-nums">{row.totals.partial}</td>
                 <td className="px-2 text-right tabular-nums">{row.totals.missing}</td>
@@ -180,7 +188,7 @@ function DayPanel({ selected, onClose }: { selected: Selected; onClose: () => vo
             {verdict ? (
               <Pill tone={verdict.status === "full" || verdict.status === "worked" ? "ok" : verdict.status === "partial" ? "warn" : verdict.status === "none" ? "neutral" : verdict.status === "not_worked" ? "danger" : "primary"}>
                 {DAY_STATUS_LABEL[verdict.status]}
-                {verdict.offSchedule ? " · вне графика" : ""}
+                {verdict.offSchedule ? " · в выходной по графику" : ""}
               </Pill>
             ) : null}
             {verdict?.overridden ? <span className="text-xs text-muted-foreground">поставлен администратором{day?.overrideReason ? `: ${day.overrideReason}` : ""}</span> : null}

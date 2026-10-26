@@ -29,7 +29,7 @@ export default async function AttendancePage({ searchParams }: { searchParams: P
       <PageHeader
         eyebrow="Табель"
         title={monthTitle(month)}
-        description="Я — полный день, Яв — вне графика, Н — неполный, НН — не отработал, О — отпуск, Б — больничный, В — выходной. Клик по дню открывает отметки и правки."
+        description="Я — полный день, Яв — в выходной по графику, Н — неполный, НН — не отработал, О — отпуск, Б — больничный, В — выходной. Серым — выходные по графику водителя. Клик по дню открывает отметки и правки, по графику под именем — смену графика."
         action={
           <>
             <nav aria-label="Месяц" className="flex items-center gap-1">
@@ -48,6 +48,9 @@ export default async function AttendancePage({ searchParams }: { searchParams: P
             >
               Скачать XLSX
             </a>
+            <Link href="/admin/attendance/schedules" className="text-sm font-medium text-primary hover:underline">
+              Графики работы
+            </Link>
             <Link href="/admin/attendance/points" className="text-sm font-medium text-primary hover:underline">
               Точки сканирования
             </Link>

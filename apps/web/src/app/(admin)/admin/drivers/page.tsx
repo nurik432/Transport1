@@ -2,12 +2,14 @@ import { asc, eq, sql } from "drizzle-orm";
 import { requireRole } from "@/lib/auth";
 import { db, schema } from "@/lib/db";
 import { AdminMain, Cell, PageHeader, Row, Table } from "@/components/admin-ui";
+import { scheduleNamesToday } from "@/lib/work-schedules";
 import { DriverRowActions, DriversEditor } from "./drivers-editor";
+import { DriverScheduleButton } from "../attendance/schedules/driver-schedule-dialog";
 
 export default async function DriversPage() {
   await requireRole("admin");
 
-  const [drivers, vehicles] = await Promise.all([
+  const [drivers, vehicles, schedules] = await Promise.all([
     db
       .select({
         id: schema.drivers.userId,
@@ -28,6 +30,7 @@ export default async function DriversPage() {
       .select({ id: schema.vehicles.id, number: schema.vehicles.number, model: schema.vehicles.model })
       .from(schema.vehicles)
       .orderBy(asc(schema.vehicles.number)),
+    scheduleNamesToday(),
   ]);
 
   const vehicleOptions = vehicles.map((v) => ({ value: v.id, label: `${v.number} · ${v.model}` }));
@@ -43,13 +46,16 @@ export default async function DriversPage() {
         <DriversEditor vehicleOptions={vehicleOptions} />
       </div>
 
-      <Table head={["Имя", "Телефон", "Транспорт", "Рейсов", "Статус", ""]}>
+      <Table head={["Имя", "Телефон", "Транспорт", "График", "Рейсов", "Статус", ""]}>
         {drivers.map((d) => (
           <Row key={d.id}>
             <Cell className="font-medium">{d.name}</Cell>
             <Cell className="text-muted-foreground tabular-nums">{d.phone}</Cell>
             <Cell className="text-muted-foreground">
               {d.vehicleNumber ? `${d.vehicleNumber} · ${d.vehicleModel}` : "—"}
+            </Cell>
+            <Cell>
+              <DriverScheduleButton userId={d.id} name={d.name} scheduleName={schedules.get(d.id) ?? "—"} />
             </Cell>
             <Cell className="text-muted-foreground tabular-nums">{Number(d.trips)}</Cell>
             <Cell>
