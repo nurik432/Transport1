@@ -15,7 +15,7 @@ Dokku разворачивает готовый образ (`git:from-image`) и
 # приложение
 dokku apps:create transport
 dokku git:set transport deploy-branch main
-dokku ports:set transport http:80:3000   # nginx на :80 внутри сервера, наружу — через Funnel
+dokku ports:set transport http:80:3000   # nginx на :80 внутри сервера, наружу — через Cloudflare Tunnel
 
 # PostgreSQL: плагин ставится один раз на сервер
 sudo dokku plugin:install https://github.com/dokku/dokku-postgres.git
@@ -50,7 +50,7 @@ push за 30 минут до конца утреннего и вечернего
 Нужны две переменные:
 
 ```bash
-dokku config:set --no-restart transport   CRON_SECRET="$(openssl rand -hex 24)"   APP_URL=https://transport.example.com
+dokku config:set --no-restart transport   CRON_SECRET="$(openssl rand -hex 24)"   APP_URL=https://transport.farovon.online
 ```
 
 Если из контейнера задачи публичный адрес недоступен, задайте `CRON_TARGET_URL` (внутренний адрес
@@ -60,18 +60,57 @@ dokku config:set --no-restart transport   CRON_SECRET="$(openssl rand -hex 24)" 
 VAPID-ключи генерируются командой `npx web-push generate-vapid-keys`. Публичный ключ
 читается в рантайме, пересобирать образ после его смены не нужно.
 
-### Публичный адрес и HTTPS (Tailscale Funnel)
+### Публичный адрес и HTTPS
 
-Адрес: **https://transport.tailb8adcc.ts.net**
+Адрес: **https://transport.farovon.online** (Cloudflare Tunnel). Прежний адрес
+`transport.tailb8adcc.ts.net` (Tailscale Funnel) выводится из работы: QR-коды
+перепечатываются с новым адресом, старые не нужны.
 
 Сервер стоит за NAT: снаружи открыт только SSH-порт 58595, порты 80/443 недоступны,
-поэтому Let's Encrypt и прямой доступ по IP не работают. Сайт публикуется через
-Tailscale Funnel: `tailscaled` сам держит исходящее соединение, Tailscale принимает
-HTTPS-запросы и проксирует их в nginx Dokku на `127.0.0.1:80`. Сертификат выпускает
-и продлевает Tailscale. HTTPS обязателен: геолокация водителя, push и установка PWA
-без него не работают.
+поэтому Let's Encrypt и прямой доступ по IP не работают. На сервере работает агент
+`cloudflared`, который сам держит исходящее соединение, а Cloudflare принимает
+HTTPS-запросы и проксирует их в nginx Dokku на `127.0.0.1:80`. Сертификат выпускает и
+продлевает Cloudflare. HTTPS обязателен: геолокация водителя, push и установка
+PWA без него не работают.
 
-Настройка (уже выполнена, повторять только при переустановке сервера):
+#### Cloudflare Tunnel (transport.farovon.online)
+
+Домен `farovon.online` куплен в Namecheap, DNS на Cloudflare (nameserver'ы
+`alberto.ns.cloudflare.com` и `georgia.ns.cloudflare.com` прописаны в Namecheap →
+Domain List → Manage → Nameservers → Custom DNS). Туннель `transport`
+(`c2e46284-b57b-446e-b928-b407bc5ec4e2`) управляется из Cloudflare: маршрут
+`transport.farovon.online → http://localhost:80` хранится в его конфигурации, на сервере
+файлов настроек нет. DNS-запись `transport` — CNAME на
+`c2e46284-b57b-446e-b928-b407bc5ec4e2.cfargotunnel.com` с проксированием.
+
+На сервере (один раз):
+
+```bash
+# cloudflared из официального репозитория Cloudflare
+curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg | tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null
+echo "deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main" > /etc/apt/sources.list.d/cloudflared.list
+apt-get update && apt-get install -y cloudflared
+# токен туннеля: cf tunnels token get c2e46284-b57b-446e-b928-b407bc5ec4e2
+cloudflared service install <токен>        # systemd-сервис, переживает перезагрузку
+
+dokku domains:add transport transport.farovon.online
+dokku config:set transport APP_URL=https://transport.farovon.online
+```
+
+Проверка: `systemctl status cloudflared` на сервере, `cf tunnels get <id>` → `"status": "healthy"`.
+QR-коды строятся из `APP_URL`: после смены адреса перепечатайте их (Табель → Точки → «Печать QR»).
+
+#### Отключение Tailscale Funnel
+
+Когда `https://transport.farovon.online` открывается и QR перепечатаны:
+
+```bash
+tailscale funnel --https=443 off
+dokku domains:remove transport transport.tailb8adcc.ts.net
+```
+
+Сам Tailscale можно оставить для доступа к серверу по приватной сети или удалить.
+Как Funnel был настроен (для истории):
 
 ```bash
 curl -fsSL https://tailscale.com/install.sh | sh
@@ -80,16 +119,6 @@ tailscale up --hostname=transport          # вход по ссылке в ак�
 tailscale funnel --bg 80                   # при первом запуске — ссылка на разрешение Funnel
 dokku domains:add transport transport.tailb8adcc.ts.net
 ```
-
-Настройка Funnel сохраняется и переживает перезагрузку. Проверка и отключение:
-
-```bash
-tailscale funnel status
-tailscale funnel --https=443 off
-```
-
-Если позже появится свой домен, можно перейти на Cloudflare Tunnel: приложение
-менять не нужно, только добавить домен через `dokku domains:add`.
 
 ### Тестовые данные и первый реальный запуск
 
