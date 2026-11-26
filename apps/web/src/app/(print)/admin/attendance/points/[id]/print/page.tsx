@@ -1,20 +1,10 @@
 import { notFound } from "next/navigation";
-import { headers } from "next/headers";
 import { eq } from "drizzle-orm";
 import QRCode from "qrcode";
+import { appOrigin } from "@/lib/app-url";
 import { requireRole } from "@/lib/auth";
 import { db, schema } from "@/lib/db";
 import { PrintButton } from "./print-button";
-
-/** Public origin for the QR link: APP_URL when set, else the request's own host. */
-async function appOrigin(): Promise<string> {
-  const fromEnv = process.env.APP_URL?.replace(/\/+$/, "");
-  if (fromEnv) return fromEnv;
-  const h = await headers();
-  const host = h.get("x-forwarded-host") ?? h.get("host") ?? "localhost:3000";
-  const proto = h.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
-  return `${proto}://${host}`;
-}
 
 /**
  * A printable A4 sheet: the QR, the point's name and one line of instruction.

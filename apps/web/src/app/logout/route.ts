@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { logout } from "@/lib/auth";
 
-// Relative Location: behind a proxy (Dokku nginx, Tailscale Funnel) request.url
+// Relative Location: behind a proxy (Dokku nginx, Cloudflare Tunnel) request.url
 // is the container's own address (http://0.0.0.0:3000), not the public host.
 function toLogin(status: 303 | 307) {
   return new NextResponse(null, { status, headers: { Location: "/login" } });

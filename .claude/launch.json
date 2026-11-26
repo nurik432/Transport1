@@ -10,7 +10,27 @@
         "dev"
       ],
       "port": 3000,
-      "autoPort": true
+      "autoPort": true,
+      "env": {
+        "DATABASE_URL": "postgres://transport:transport@localhost:5434/transport",
+        "CRON_SECRET": "local-test-secret"
+      }
+    },
+    {
+      "name": "transport-web-demo",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "--filter",
+        "web",
+        "start",
+        "--port",
+        "3100"
+      ],
+      "port": 3100,
+      "env": {
+        "DATABASE_URL": "postgres://transport:transport@localhost:5434/transport_demo",
+        "CRON_SECRET": "local-test-secret"
+      }
     }
   ]
 }

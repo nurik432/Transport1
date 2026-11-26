@@ -1,0 +1,16 @@
+{
+  "name": "video-guide",
+  "private": true,
+  "type": "module",
+  "description": "Записывает видеоинструкции по админке: Playwright + edge-tts + ffmpeg",
+  "scripts": {
+    "record": "node --env-file=.env record.mjs",
+    "dry": "node --env-file=.env record.mjs --dry",
+    "reset-demo": "node --env-file=.env reset-demo.mjs"
+  },
+  "dependencies": {
+    "ffmpeg-static": "^5.2.0",
+    "playwright": "^1.56.1",
+    "postgres": "^3.4.7"
+  }
+}
