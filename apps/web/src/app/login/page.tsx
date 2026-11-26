@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { IconBus } from "@/components/icons";
+import Image from "next/image";
 import { Card } from "@/components/ui";
 import { LoginForm } from "./login-form";
 
@@ -15,13 +15,18 @@ export default async function LoginPage({
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-sm flex-col justify-center gap-6 px-4 py-10">
       <div className="flex flex-col items-center gap-3 text-center">
-        <span className="flex size-12 items-center justify-center rounded-2xl bg-primary text-on-primary">
-          <IconBus className="size-7" />
-        </span>
-        <div>
-          <h1 className="text-xl font-semibold">Корпоративный транспорт</h1>
-          <p className="text-sm text-muted-foreground">Войдите по телефону и паролю, выданному администратором</p>
-        </div>
+        <h1>
+          {/* PNG, not SVG: the tagline in the SVG is live Montserrat text that an <img> would not render. */}
+          <Image
+            src="/brand/logo-horizontal-blue.png"
+            alt="Фаровон Транспорт"
+            width={240}
+            height={64}
+            priority
+            unoptimized
+          />
+        </h1>
+        <p className="text-sm text-muted-foreground">Войдите по телефону и паролю, выданному администратором</p>
       </div>
 
       <Card className="p-5">

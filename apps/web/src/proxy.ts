@@ -30,5 +30,9 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|icon-|manifest.webmanifest|api/).*)"],
+  // Icons, the og:image and the logo must load without a session: the login
+  // screen and link previews in messengers fetch them anonymously.
+  matcher: [
+    "/((?!_next/static|_next/image|favicon|icon-|apple-touch-icon|og-image|brand/|manifest.webmanifest|api/).*)",
+  ],
 };

@@ -1,12 +1,12 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { cx } from "@/components/ui";
 import {
   IconBell,
-  IconBus,
   IconCalendar,
   IconChart,
   IconClipboard,
@@ -92,6 +92,7 @@ export function AdminSidebar({ userName, attentionCount = 0, isSuper = false }: 
       {/* Mobile bar */}
       <div className="flex items-center justify-between border-b border-border bg-card px-4 py-3 lg:hidden">
         <span className="flex items-center gap-2 font-semibold">
+          <Image src="/brand/mark-blue.svg" alt="Фаровон Транспорт" width={28} height={28} unoptimized />
           Администрирование
           {attentionCount > 0 ? <Badge count={attentionCount} /> : null}
         </span>
@@ -111,14 +112,9 @@ export function AdminSidebar({ userName, attentionCount = 0, isSuper = false }: 
           open ? "block border-b" : "hidden lg:flex",
         )}
       >
-        <div className="hidden items-center gap-2.5 px-5 py-4 lg:flex">
-          <span className="flex size-9 items-center justify-center rounded-[10px] bg-ink text-on-ink">
-            <IconBus className="size-5" />
-          </span>
-          <div className="min-w-0">
-            <p className="truncate text-[15px] font-bold">Транспорт</p>
-            <p className="truncate text-xs text-muted-foreground">{userName}</p>
-          </div>
+        <div className="hidden flex-col gap-1.5 px-5 py-4 lg:flex">
+          <Image src="/brand/logo-horizontal-blue.png" alt="Фаровон Транспорт" width={180} height={48} priority unoptimized />
+          <p className="truncate text-xs text-muted-foreground">{userName}</p>
         </div>
 
         <nav aria-label="Разделы администратора" className="flex flex-col gap-3.5 px-3 py-2 lg:flex-1 lg:overflow-y-auto">
