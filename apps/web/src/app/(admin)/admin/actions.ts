@@ -793,7 +793,7 @@ export async function deleteRoute(id: string): Promise<ActionResult> {
 const vehicleSchema = z.object({
   id: z.string().uuid().optional(),
   number: z.string().trim().min(3, "Укажите гос. номер"),
-  model: z.string().trim().min(2, "Укажите модель"),
+  model: z.string().trim().max(100).default(""),
   capacity: z.coerce.number().int().min(1, "Вместимость должна быть больше нуля").max(200),
   status: z.enum(["active", "repair", "inactive"]).default("active"),
 });

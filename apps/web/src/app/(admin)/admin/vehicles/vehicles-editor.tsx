@@ -12,7 +12,7 @@ const STATUS_OPTIONS = [
 
 const FIELDS = (defaults?: { number: string; model: string; capacity: number; status: string }) => [
   { name: "number", label: "Гос. номер", required: true, placeholder: "01 A 123 AA", defaultValue: defaults?.number },
-  { name: "model", label: "Модель", required: true, placeholder: "Автобус ПАЗ-4234", defaultValue: defaults?.model },
+  { name: "model", label: "Модель (необязательно)", placeholder: "Автобус ПАЗ-4234", defaultValue: defaults?.model },
   { name: "capacity", label: "Мест", type: "number" as const, required: true, placeholder: "30", defaultValue: defaults?.capacity },
   {
     name: "status",

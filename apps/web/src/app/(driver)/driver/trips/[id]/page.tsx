@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { durationLabel, formatLocalDate, formatLocalTime, localNow, parseTimeToMinutes, plural } from "@transport/domain";
+import { durationLabel, formatLocalDate, formatLocalTime, localNow, parseTimeToMinutes, plural, vehicleTitle } from "@transport/domain";
 import { requireRole } from "@/lib/auth";
 import { getTrip } from "@/lib/queries";
 import { getDeviationSettings } from "@/lib/live";
@@ -20,7 +20,7 @@ export default async function DriverTripPage({ params }: { params: Promise<{ id:
   if (!trip) notFound();
   if (trip.driver?.id !== user.id) redirect("/driver");
 
-  const vehicleLabel = trip.vehicle ? `${trip.vehicle.model}, ${trip.vehicle.number}` : null;
+  const vehicleLabel = trip.vehicle ? vehicleTitle(trip.vehicle) : null;
 
   // ------------------------------------------------------------ in progress
   if (trip.status === "in_progress") {

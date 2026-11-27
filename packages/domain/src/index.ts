@@ -16,3 +16,4 @@ export * from "./admins";
 export * from "./subscription";
 export * from "./attendance";
 export * from "./work-schedule";
+export * from "./vehicle";

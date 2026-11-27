@@ -15,6 +15,7 @@ import {
   type TripLoadRecord,
   tripLoad,
   weekdayOfDate,
+  vehicleLabel,
 } from "@transport/domain";
 import { db, schema } from "./db";
 import { tripVehicleNo, tripVehiclesAtTime } from "./trip-vehicle";
@@ -344,7 +345,7 @@ export async function listCrewOptions(): Promise<{
   ]);
   return {
     drivers: driverRows,
-    vehicles: vehicleRows.map((v) => ({ id: v.id, label: `${v.number} · ${v.model}` })),
+    vehicles: vehicleRows.map((v) => ({ id: v.id, label: vehicleLabel(v) })),
   };
 }
 

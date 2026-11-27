@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { and, asc, eq, sql } from "drizzle-orm";
-import { addDays, departureLabel, formatLocalDate, localNow } from "@transport/domain";
+import { addDays, departureLabel, formatLocalDate, localNow, vehicleLabel } from "@transport/domain";
 import { requireRole } from "@/lib/auth";
 import { db, schema } from "@/lib/db";
 import { AdminMain, Cell, FilterChips, PageHeader, Row, Table, type FilterChip } from "@/components/admin-ui";
@@ -215,7 +215,7 @@ export default async function TripsPage({
                     }
                     vehicleOptions={vehicles.map((v) => ({
                       value: v.id,
-                      label: `${v.number} · ${v.model}`,
+                      label: vehicleLabel(v),
                     }))}
                     driverOptions={drivers.map((d) => ({
                       value: d.id,

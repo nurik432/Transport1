@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { durationLabel, formatLocalDate, localNow, parseTimeToMinutes, plural } from "@transport/domain";
+import { durationLabel, formatLocalDate, localNow, parseTimeToMinutes, plural, vehicleTitle } from "@transport/domain";
 import { requireRole } from "@/lib/auth";
 import { getDriverTrips } from "@/lib/queries";
 import { getTodayMarks } from "@/lib/attendance";
@@ -130,7 +130,7 @@ export default async function DriverToday() {
               <div className="flex flex-col gap-0.5 rounded-xl bg-background px-3 py-2.5">
                 <span className="text-xs text-muted-foreground">Транспорт</span>
                 <span className="truncate text-[15px] font-semibold">
-                  {focus.vehicleNumber ? `${focus.vehicleModel ?? ""} ${focus.vehicleNumber}`.trim() : "не назначен"}
+                  {focus.vehicleNumber ? vehicleTitle({ number: focus.vehicleNumber, model: focus.vehicleModel }) : "не назначен"}
                 </span>
               </div>
               <div className="flex flex-col gap-0.5 rounded-xl bg-background px-3 py-2.5">

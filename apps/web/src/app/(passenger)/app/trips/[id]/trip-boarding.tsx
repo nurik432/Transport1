@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { vehicleTitle } from "@transport/domain";
 import { Button } from "@/components/ui";
 import { IconBus, IconCheck } from "@/components/icons";
 import { BookButton } from "../../book-button";
@@ -122,7 +123,7 @@ export function TripBoarding({
       {vehicle ? (
         <p className="flex items-center gap-1.5 px-1 text-sm text-muted-foreground">
           <IconBus className="size-4" />
-          {vehicle.model}, {vehicle.number}
+          {vehicleTitle(vehicle)}
         </p>
       ) : null}
     </TripLivePanel>
