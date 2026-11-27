@@ -453,3 +453,7 @@ Mechanical record only - see git history for diffs and rationale._
 - 2026-11-26 09:28  Edit  C:/Users/fid926309449/transport1/apps/web/src/app/login/page.tsx
 - 2026-11-26 09:28  Edit  C:/Users/fid926309449/transport1/apps/web/src/app/(admin)/sidebar.tsx
 - 2026-11-26 09:28  Edit  C:/Users/fid926309449/transport1/apps/web/src/app/(admin)/sidebar.tsx
+- 2026-11-27 11:32  Write  C:/Users/FID926~1/AppData/Local/Temp/claude/99a5ca01ce34f791/d2dcae8f-d211-48e1-9aa2-c5608b683580/scratchpad/extract.py
+- 2026-11-27 11:32  Write  C:/Users/FID926~1/AppData/Local/Temp/claude/99a5ca01ce34f791/d2dcae8f-d211-48e1-9aa2-c5608b683580/scratchpad/make-sql.cjs
+- 2026-11-27 11:34  Write  C:/Users/fid926309449/transport1/packages/domain/src/vehicle.ts
+- 2026-11-27 11:34  Write  C:/Users/fid926309449/transport1/packages/domain/test/vehicle.test.ts

@@ -39,7 +39,7 @@ export default async function VehiclesPage() {
         {vehicles.map((v) => (
           <Row key={v.id}>
             <Cell className="font-medium tabular-nums">{v.number}</Cell>
-            <Cell>{v.model}</Cell>
+            <Cell>{v.model || "—"}</Cell>
             <Cell className="tabular-nums">{v.capacity}</Cell>
             <Cell className="text-muted-foreground">{v.driverName ?? "—"}</Cell>
             <Cell className="text-muted-foreground tabular-nums">{Number(v.trips)}</Cell>

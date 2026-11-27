@@ -1,4 +1,5 @@
 import { asc, eq, sql } from "drizzle-orm";
+import { vehicleLabel } from "@transport/domain";
 import { requireRole } from "@/lib/auth";
 import { db, schema } from "@/lib/db";
 import { AdminMain, Cell, PageHeader, Row, Table } from "@/components/admin-ui";
@@ -33,7 +34,7 @@ export default async function DriversPage() {
     scheduleNamesToday(),
   ]);
 
-  const vehicleOptions = vehicles.map((v) => ({ value: v.id, label: `${v.number} · ${v.model}` }));
+  const vehicleOptions = vehicles.map((v) => ({ value: v.id, label: vehicleLabel(v) }));
 
   return (
     <AdminMain>
@@ -52,7 +53,7 @@ export default async function DriversPage() {
             <Cell className="font-medium">{d.name}</Cell>
             <Cell className="text-muted-foreground tabular-nums">{d.phone}</Cell>
             <Cell className="text-muted-foreground">
-              {d.vehicleNumber ? `${d.vehicleNumber} · ${d.vehicleModel}` : "—"}
+              {d.vehicleNumber ? vehicleLabel({ number: d.vehicleNumber, model: d.vehicleModel }) : "—"}
             </Cell>
             <Cell>
               <DriverScheduleButton userId={d.id} name={d.name} scheduleName={schedules.get(d.id) ?? "—"} />

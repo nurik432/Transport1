@@ -84,7 +84,7 @@ export default async function DriverProfile() {
               <IconBus className="size-5.5" />
             </span>
             <div className="flex min-w-0 flex-col">
-              <span className="truncate text-[15px] font-semibold">{vehicle?.vehicleModel ?? "Не назначен"}</span>
+              <span className="truncate text-[15px] font-semibold">{vehicle ? vehicle.vehicleModel || vehicle.vehicleNumber : "Не назначен"}</span>
               <span className="truncate text-[13px] text-muted-foreground">
                 {vehicle?.vehicleNumber
                   ? `${vehicle.vehicleNumber} · ${vehicle.capacity} ${plural(vehicle.capacity ?? 0, ["место", "места", "мест"])}`
